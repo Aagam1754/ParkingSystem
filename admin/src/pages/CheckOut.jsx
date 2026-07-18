@@ -3,6 +3,7 @@ import { AlprAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
 import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
+import { formatPlate } from '../utils/plates';
 
 export default function CheckOut() {
   const canvasRef = useRef(null);
@@ -21,10 +22,11 @@ export default function CheckOut() {
 
   const onCheckoutSuccess = useCallback((payload) => {
     if (!payload?.closed && !payload?.session) return;
-    const plate = payload.session?.plate_normalized || payload.plateNormalized || '';
+    const plateRaw = payload.session?.plate_normalized || payload.plateNormalized || '';
+    const plate = formatPlate(plateRaw);
     const slotCode = payload.session?.slot_code || payload.slot?.code;
     setResult(payload);
-    setDetectedPlate(plate);
+    setDetectedPlate(plateRaw);
     setStatus(`Checked out ${plate}`);
     setPopup({
       open: true,
@@ -215,7 +217,7 @@ export default function CheckOut() {
             <section className="panel">
               <div className="scan-result success">
                 <strong>Last exit</strong>
-                <div>{result.session?.plate_normalized}</div>
+                <div>{formatPlate(result.session?.plate_normalized)}</div>
                 <div className="muted">Session closed · slot freed</div>
               </div>
             </section>

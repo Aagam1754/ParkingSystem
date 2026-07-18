@@ -3,6 +3,7 @@ import { AlprAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
 import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
+import { formatPlate } from '../utils/plates';
 
 export default function CheckIn() {
   const canvasRef = useRef(null);
@@ -30,7 +31,7 @@ export default function CheckIn() {
       open: true,
       title: 'Check-in success',
       lines: [
-        `Plate ${payload.plateNormalized}`,
+        `Plate ${formatPlate(payload.plateNormalized)}`,
         `Slot ${payload.slot?.code}`,
         payload.base?.name || '',
         payload.vehicle?.company
@@ -39,7 +40,7 @@ export default function CheckIn() {
         payload.allotmentNote || '',
       ].filter(Boolean),
     });
-    setStatus(`Allotted ${payload.slot?.code} for ${payload.plateNormalized}`);
+    setStatus(`Allotted ${payload.slot?.code} for ${formatPlate(payload.plateNormalized)}`);
   }, []);
 
   const { live } = useSocket({
@@ -228,7 +229,7 @@ export default function CheckIn() {
             </div>
             <div className={`plate-board ${detectedPlate ? 'has-plate' : ''}`}>
               <div className="muted">Number plate (from camera)</div>
-              <div className="plate-huge">{detectedPlate || 'WAITING…'}</div>
+              <div className="plate-huge">{detectedPlate ? formatPlate(detectedPlate) : 'WAITING…'}</div>
               <div className="muted">Confidence {Math.round((confidence || 0) * 100)}%</div>
               {ocrHint ? <div className="muted" style={{ marginTop: 8 }}>OCR: {ocrHint}</div> : null}
             </div>
@@ -250,7 +251,7 @@ export default function CheckIn() {
                   <b>{result.base?.name}</b> ({result.base?.code})
                 </div>
                 <div>
-                  Plate <b>{result.plateNormalized}</b>
+                  Plate <b>{formatPlate(result.plateNormalized)}</b>
                 </div>
                 <div>
                   {result.vehicle?.company || 'General Parking'}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BasesAPI, DashboardAPI } from '../api';
 import { useSocket } from '../hooks/useSocket';
+import { formatPlate } from '../utils/plates';
 
 function SlotCell({ slot, color }) {
   const occupied = slot.status === 'OCCUPIED';
-  const plate = slot.plate_normalized || '';
+  const plate = formatPlate(slot.plate_normalized);
   return (
     <div
       className={`slot ${slot.vehicle_type.toLowerCase()} ${slot.status}`}

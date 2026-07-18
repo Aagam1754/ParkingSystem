@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BasesAPI, DashboardAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
 import { useSocket } from '../hooks/useSocket';
+import { formatPlate } from '../utils/plates';
 
 function SlotCell({ slot, blinkId, color }) {
   const blinking = blinkId && slot.id === blinkId;
   const occupied = slot.status === 'OCCUPIED';
-  const plate = slot.plate_normalized || '';
+  const plate = formatPlate(slot.plate_normalized);
   return (
     <div
       className={`slot display-slot ${slot.vehicle_type.toLowerCase()} ${slot.status} ${
@@ -83,7 +84,7 @@ export default function UserDisplay() {
         title: 'Parking allotted',
         lines: [
           `Welcome${payload.vehicle?.member ? `, ${payload.vehicle.member}` : ''}`,
-          `Plate ${payload.plateNormalized}`,
+          `Plate ${formatPlate(payload.plateNormalized)}`,
           `Your slot: ${payload.slot?.code}`,
           payload.base?.name || '',
           payload.vehicle?.company || 'General Parking',
@@ -110,7 +111,7 @@ export default function UserDisplay() {
   const onCheckout = useCallback(
     async (payload) => {
       if (!payload?.closed && !payload?.session) return;
-      const plate = payload.session?.plate_normalized || payload.plateNormalized || '';
+      const plate = formatPlate(payload.session?.plate_normalized || payload.plateNormalized || '');
       const slotCode = payload.slot?.code;
       setPopup({
         open: true,
@@ -224,7 +225,9 @@ export default function UserDisplay() {
           </div>
           <div className={`plate-board ${latest ? 'has-plate' : ''}`}>
             <div className="muted">Scanned number plate</div>
-            <div className="plate-huge">{latest?.plateNormalized || 'WAITING'}</div>
+            <div className="plate-huge">
+              {latest?.plateNormalized ? formatPlate(latest.plateNormalized) : 'WAITING'}
+            </div>
           </div>
 
           <div className="scan-result" style={{ marginTop: 16 }}>
