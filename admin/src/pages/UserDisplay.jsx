@@ -105,8 +105,34 @@ export default function UserDisplay() {
     []
   );
 
+  const onCheckout = useCallback(
+    async (payload) => {
+      if (!payload?.closed && !payload?.session) return;
+      const plate = payload.session?.plate_normalized || payload.plateNormalized || '';
+      const slotCode = payload.slot?.code;
+      setPopup({
+        open: true,
+        title: 'Check-out successful',
+        lines: [
+          plate ? `Plate ${plate}` : '',
+          slotCode ? `Slot ${slotCode} freed` : 'Parking slot freed',
+          'Thank you — drive safe',
+        ].filter(Boolean),
+      });
+      if (selectedBaseId) {
+        try {
+          await loadBase(selectedBaseId);
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    [loadBase, selectedBaseId]
+  );
+
   const { live } = useSocket({
     'checkin.success': onCheckin,
+    'checkout.success': onCheckout,
     'occupancy.updated': () => {
       if (selectedBaseId) loadBase(selectedBaseId).catch(() => {});
     },
