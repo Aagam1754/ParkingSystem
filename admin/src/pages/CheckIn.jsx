@@ -62,63 +62,31 @@ export default function CheckIn() {
     if (cameraError) setError(cameraError);
   }, [cameraError]);
 
-  /** Capture full frame + tight center crop (yellow guide) for better OCR. */
+  /** Capture yellow-guide crop (preferred) + full frame. */
   function captureFrames() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.videoWidth) return [];
 
-    const frames = [];
     const drawAndEncode = (sx, sy, sw, sh, outW) => {
-      const scale = outW / sw;
-      canvas.width = Math.round(sw * scale);
-      canvas.height = Math.round(sh * scale);
+      const scale = Math.min(1, outW / sw);
+      canvas.width = Math.max(1, Math.round(sw * scale));
+      canvas.height = Math.max(1, Math.round(sh * scale));
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', 0.92);
+      return canvas.toDataURL('image/jpeg', 0.85);
     };
 
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    // full frame
-    frames.push(drawAndEncode(0, 0, vw, vh, 1100));
-    // yellow guide region (~center band)
     const gx = Math.floor(vw * 0.1);
     const gy = Math.floor(vh * 0.32);
     const gw = Math.floor(vw * 0.8);
     const gh = Math.floor(vh * 0.4);
-    frames.push(drawAndEncode(gx, gy, gw, gh, 1000));
-    // tighter plate band
-    const tx = Math.floor(vw * 0.18);
-    const ty = Math.floor(vh * 0.38);
-    const tw = Math.floor(vw * 0.64);
-    const th = Math.floor(vh * 0.28);
-    frames.push(drawAndEncode(tx, ty, tw, th, 900));
-    return frames;
-  }
-
-  async function tryScanFrames(frames) {
-    let best = null;
-    for (const imageBase64 of frames) {
-      try {
-        const data = await AlprAPI.scan({ imageBase64 });
-        if (data?.plate) {
-          if (
-            !best ||
-            (data.matchedRegistered && !best.matchedRegistered) ||
-            (data.confidence || 0) > (best.confidence || 0)
-          ) {
-            best = data;
-          }
-          if (data.matchedRegistered || (data.confidence || 0) >= 0.85) break;
-        } else if (!best) {
-          best = data;
-        }
-      } catch (err) {
-        setOcrHint(err.message);
-      }
-    }
-    return best;
+    return [
+      drawAndEncode(gx, gy, gw, gh, 900), // guide crop first
+      drawAndEncode(0, 0, vw, vh, 960),
+    ];
   }
 
   async function autoCycle() {
@@ -132,43 +100,45 @@ export default function CheckIn() {
       }
 
       setStatus('Scanning plate…');
-      const scanned = await tryScanFrames(frames);
+      // One OCR call on guide crop (fast). Fallback to full frame if needed.
+      let scanned = await AlprAPI.scan({ imageBase64: frames[0] });
+      if (!scanned?.plate && frames[1]) {
+        scanned = await AlprAPI.scan({ imageBase64: frames[1] });
+      }
+
       if (scanned?.plate) {
         setDetectedPlate(scanned.plate);
         setConfidence(scanned.confidence || 0);
-        setOcrHint(scanned.message || scanned.rawText?.slice(0, 80) || '');
+        setOcrHint(scanned.message || '');
         setError('');
 
         const plate = scanned.plate;
-        if (
-          plate === cooldownPlateRef.current &&
-          Date.now() < cooldownUntilRef.current
-        ) {
+        if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
           setStatus(`Already checked in ${plate}`);
           return;
         }
 
         setStatus(`Plate ${plate} — checking in…`);
-        // Direct check-in with best crop frame + plate hint
         const data = await AlprAPI.checkIn({
           plate,
-          imageBase64: frames[1] || frames[0],
+          imageBase64: frames[0],
           source: 'WEBCAM',
         });
         setResult(data);
         if (data.allotted) onCheckinSuccess(data);
         else setStatus(data.reason || 'Not allotted');
       } else {
-        setStatus(scanned?.message || 'Point plate at camera — still looking…');
-        setOcrHint(scanned?.rawText?.slice(0, 100) || 'No plate text yet');
+        setStatus('Still looking… fill yellow box with plate, hold 1–2s');
+        setOcrHint(scanned?.rawText?.slice(0, 80) || scanned?.message || '');
       }
     } catch (err) {
       if (/already checked in/i.test(err.message)) {
         setStatus(err.message);
         cooldownPlateRef.current = detectedPlate;
         cooldownUntilRef.current = Date.now() + 15000;
-      } else if (/Could not read number plate/i.test(err.message)) {
-        setStatus('Hold plate steady & closer in the yellow box');
+      } else if (/timed out|Could not read number plate/i.test(err.message)) {
+        setStatus('Scan weak — move plate closer or use Upload plate photo');
+        setOcrHint(err.message);
       } else {
         setError(err.message);
       }
@@ -179,11 +149,10 @@ export default function CheckIn() {
 
   useEffect(() => {
     if (!autoScan || !cameraOn) return undefined;
-    // Kick immediately, then every 1.1s
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 1100);
+    }, 2000); // 2s — avoid overlapping slow OCR calls
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);

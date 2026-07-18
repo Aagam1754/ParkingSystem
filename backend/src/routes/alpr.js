@@ -28,22 +28,36 @@ async function getKnownPlates() {
 }
 
 async function runOcr(imageBase64, knownPlates) {
-  const response = await fetch(`${PYTHON_ALPR_URL}/scan`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      imageBase64,
-      knownPlates,
-    }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const err = new Error(data.error || data.message || 'Python ALPR failed');
-    err.status = response.status;
-    err.detail = data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${PYTHON_ALPR_URL}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64,
+        knownPlates,
+      }),
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(data.error || data.message || 'Python ALPR failed');
+      err.status = response.status;
+      err.detail = data;
+      throw err;
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Plate scan timed out — hold plate closer/ steadier, or use Upload plate photo');
+      timeoutErr.status = 504;
+      throw timeoutErr;
+    }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 function applyKnownMatch(ocr, knownPlates) {
