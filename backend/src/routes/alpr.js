@@ -7,9 +7,17 @@ import { bestRegisteredMatch } from '../utils/plateMatch.js';
 const router = Router();
 const PYTHON_ALPR_URL = process.env.PYTHON_ALPR_URL || 'http://127.0.0.1:5001';
 
-function emitLive(req, payload) {
-  req.app.get('io')?.emit('occupancy.updated', { at: new Date().toISOString() });
-  req.app.get('io')?.emit('session.updated', payload);
+function emitLive(req, payload, eventName = 'session.updated') {
+  const io = req.app.get('io');
+  if (!io) return;
+  io.emit('occupancy.updated', { at: new Date().toISOString() });
+  io.emit(eventName, payload);
+  if (eventName === 'checkin.success' || payload?.allotted) {
+    io.emit('checkin.success', payload);
+  }
+  if (eventName === 'checkout.success' || payload?.closed) {
+    io.emit('checkout.success', payload);
+  }
 }
 
 /**
@@ -128,7 +136,7 @@ router.post(
         })
       );
 
-      emitLive(req, result);
+      emitLive(req, { ...result, ocr }, result.allotted ? 'checkin.success' : 'session.updated');
       return res.status(result.allotted ? 201 : 409).json({ ...result, ocr });
     } catch (err) {
       console.error(err);
@@ -150,7 +158,7 @@ router.post(
           source: req.body?.source || 'WEBCAM',
         })
       );
-      emitLive(req, result);
+      emitLive(req, result, 'checkout.success');
       return res.json(result);
     } catch (err) {
       console.error(err);

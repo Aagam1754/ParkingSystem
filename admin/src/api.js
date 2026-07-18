@@ -54,6 +54,7 @@ export const DashboardAPI = {
   companies: () => api('/api/dashboard/companies'),
   members: () => api('/api/dashboard/members'),
   incidents: () => api('/api/dashboard/incidents'),
+  building: () => api('/api/dashboard/building'),
 };
 
 export const BasesAPI = {

@@ -65,13 +65,20 @@ router.get('/overview', requireAuth, async (_req, res) => {
 router.get('/companies', requireAuth, async (_req, res) => {
   const rows = await query(
     `SELECT c.*,
+      b.name AS building_name,
       (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS member_count,
       (SELECT COUNT(*) FROM vehicles v WHERE v.company_id = c.id AND v.deleted_at IS NULL) AS vehicle_count,
       (SELECT COUNT(*) FROM slots s WHERE s.company_id = c.id) AS slot_count
      FROM companies c
+     LEFT JOIN buildings b ON b.id = c.building_id
      ORDER BY c.id`
   );
   res.json(rows);
+});
+
+router.get('/building', requireAuth, async (_req, res) => {
+  const rows = await query(`SELECT * FROM buildings WHERE status = 'ACTIVE' ORDER BY id LIMIT 1`);
+  res.json(rows[0] || null);
 });
 
 router.get('/members', requireAuth, async (_req, res) => {

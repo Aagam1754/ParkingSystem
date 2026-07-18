@@ -22,7 +22,7 @@ export default function Registry() {
       <div className="topbar">
         <div>
           <h2>Companies & members</h2>
-          <p>Corporate registry linked to Bases 2 and 3</p>
+          <p>Eastface tenants · Basement 2 & 3 company pools · Basement 1 general</p>
         </div>
       </div>
 
@@ -31,10 +31,16 @@ export default function Registry() {
       <div className="stats">
         {companies.map((c) => (
           <div className="stat" key={c.id}>
-            <span>{c.code}</span>
-            <strong style={{ fontSize: '1.2rem' }}>{c.name}</strong>
-            <div className="muted" style={{ marginTop: 8 }}>
-              {c.member_count} members · {c.vehicle_count} vehicles
+            <span>
+              <span className="company-swatch" style={{ background: c.color_hex }} />
+              {c.code} · {c.floor_label}
+            </span>
+            <strong style={{ fontSize: '1.05rem' }}>{c.name}</strong>
+            <div className="muted" style={{ marginTop: 8, fontSize: '0.82rem' }}>
+              {c.address}
+            </div>
+            <div className="muted" style={{ marginTop: 6 }}>
+              {c.member_count} members · {c.vehicle_count} vehicles · {c.slot_count} slots
             </div>
           </div>
         ))}

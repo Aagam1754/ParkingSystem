@@ -217,27 +217,47 @@ export async function processEntryScan(conn, payload) {
     }
     sessionType = 'GUEST';
     allotmentNote = guestCreated
-      ? 'New guest registered → general pool (FCFS)'
-      : 'Guest / unregistered → general pool (FCFS)';
+      ? 'New guest registered → Basement 1 general parking (FCFS)'
+      : 'Guest / unregistered → Basement 1 general parking (FCFS)';
   }
 
   const resolvedType = vehicle?.vehicle_type || vehicleType;
+
+  // Guests always prefer Basement 1 (GENERAL). Company cars skip B1.
+  let effectivePreferredBaseId = preferredBaseId;
+  if (sessionType === 'GUEST' || sessionType === 'GENERAL') {
+    const [generalBase] = await conn.query(
+      `SELECT id FROM bases WHERE base_kind = 'GENERAL' AND status = 'ACTIVE' ORDER BY level_no ASC LIMIT 1`
+    );
+    effectivePreferredBaseId = generalBase[0]?.id || preferredBaseId;
+  } else if (preferredBaseId) {
+    const [baseMeta] = await conn.query(`SELECT base_kind FROM bases WHERE id = ? LIMIT 1`, [
+      preferredBaseId,
+    ]);
+    if (baseMeta[0]?.base_kind === 'GENERAL') {
+      effectivePreferredBaseId = null; // company vehicle should not park in B1 pools
+    }
+  }
+
   let slot = await pickFreeSlotFCFS(conn, {
     vehicleType: resolvedType,
     companyId: targetCompanyId,
-    preferredBaseId,
+    preferredBaseId: effectivePreferredBaseId,
   });
 
-  // Company pool full → overflow into general
+  // Company pool full → overflow into Basement 1 general
   if (!slot && targetCompanyId) {
+    const [generalBase] = await conn.query(
+      `SELECT id FROM bases WHERE base_kind = 'GENERAL' AND status = 'ACTIVE' ORDER BY level_no ASC LIMIT 1`
+    );
     slot = await pickFreeSlotFCFS(conn, {
       vehicleType: resolvedType,
       companyId: null,
-      preferredBaseId,
+      preferredBaseId: generalBase[0]?.id || null,
     });
     if (slot) {
       sessionType = 'GENERAL';
-      allotmentNote = `Company pool full → overflow general slot (FCFS)`;
+      allotmentNote = `Company pool full → overflow Basement 1 general (FCFS)`;
     }
   }
 

@@ -13,19 +13,39 @@ DROP TABLE IF EXISTS slots;
 DROP TABLE IF EXISTS company_base_allocations;
 DROP TABLE IF EXISTS bases;
 DROP TABLE IF EXISTS companies;
+DROP TABLE IF EXISTS buildings;
 DROP TABLE IF EXISTS refresh_tokens;
 DROP TABLE IF EXISTS users;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
-CREATE TABLE companies (
+CREATE TABLE buildings (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
   code VARCHAR(40) NOT NULL,
+  address VARCHAR(255) NULL,
+  city VARCHAR(80) NULL,
+  state VARCHAR(80) NULL,
+  pincode VARCHAR(20) NULL,
+  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_buildings_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE companies (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  building_id BIGINT UNSIGNED NULL,
+  name VARCHAR(160) NOT NULL,
+  code VARCHAR(40) NOT NULL,
+  floor_label VARCHAR(80) NULL,
+  address VARCHAR(255) NULL,
+  color_hex VARCHAR(16) NOT NULL DEFAULT '#3DFFA8',
   status ENUM('ACTIVE','SUSPENDED') NOT NULL DEFAULT 'ACTIVE',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_companies_code (code)
+  UNIQUE KEY uq_companies_code (code),
+  CONSTRAINT fk_companies_building FOREIGN KEY (building_id) REFERENCES buildings(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE users (
@@ -46,17 +66,20 @@ CREATE TABLE users (
   CONSTRAINT fk_users_company FOREIGN KEY (company_id) REFERENCES companies(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- A basement/level can host GENERAL + multiple COMPANY slot pools
+-- Basement levels under a building. B1 = GENERAL only; others host multi-company pools.
 CREATE TABLE bases (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  building_id BIGINT UNSIGNED NULL,
   name VARCHAR(120) NOT NULL,
   code VARCHAR(40) NOT NULL,
   level_no INT NOT NULL DEFAULT 1,
+  base_kind ENUM('GENERAL','MULTI_COMPANY') NOT NULL DEFAULT 'MULTI_COMPANY',
   description VARCHAR(255) NULL,
   status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_bases_code (code)
+  UNIQUE KEY uq_bases_code (code),
+  CONSTRAINT fk_bases_building FOREIGN KEY (building_id) REFERENCES buildings(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- How many slots each company is allocated inside a basement (soft quota metadata)

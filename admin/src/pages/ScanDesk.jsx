@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { SessionsAPI } from '../api';
 
 const SAMPLE_REGISTERED = [
+  { plate: 'GJ01YK1001', vehicleType: 'CAR', note: 'York IE · Priya Sharma' },
+  { plate: 'GJ01YK2044', vehicleType: 'CAR', note: 'York IE · Arjun Mehta' },
+  { plate: 'GJ01YK1002', vehicleType: 'BIKE', note: 'York IE · Priya Sharma' },
   { plate: 'MH12AB1234', vehicleType: 'CAR', note: 'Nexus · Aisha' },
-  { plate: 'MH12CD5678', vehicleType: 'BIKE', note: 'Nexus · Aisha' },
-  { plate: 'MH14EF9012', vehicleType: 'CAR', note: 'Nexus · Rohan' },
   { plate: 'GJ01GH3456', vehicleType: 'CAR', note: 'Orbit · Meera' },
-  { plate: 'GJ01JK7890', vehicleType: 'BIKE', note: 'Orbit · Vikram' },
 ];
 
 export default function ScanDesk() {
-  const [plate, setPlate] = useState('MH12AB1234');
+  const [plate, setPlate] = useState('GJ01YK1001');
   const [vehicleType, setVehicleType] = useState('CAR');
   const [confidence, setConfidence] = useState(0.93);
   const [result, setResult] = useState(null);

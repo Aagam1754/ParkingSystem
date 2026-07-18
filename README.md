@@ -1,58 +1,60 @@
-# ParkLane — Smart Parking Allotment System
+# Eastface ParkLane — Smart Parking
 
-Realtime webcam number-plate check-in for multi-company basement parking.
+Realtime webcam check-in / check-out for **Eastface, Ambli Rd, Ahmedabad** with multi-company basement pools.
 
-## Core flow
+## Demo building
 
-1. Webcam shows the vehicle plate
-2. Python ALPR reads the plate
-3. Node checks MySQL (`parking`)
-4. **Registered company vehicle** → first free slot in that company’s pool (FCFS)
-5. **Unknown plate** → auto-register guest user + vehicle → general pool slot
-6. Live basement map updates over Socket.io
+**Eastface**  
+Iscon, Ambli Rd, behind Maruti Suzuki Arena, Ambli, Ahmedabad, Gujarat 380058
 
-## Basement model
+### Primary company
+**York IE APAC Pvt Ltd** (2nd Floor)  
+`2nd floor Eastface, Iscon, Ambli Rd, behind Maruti Suzuki Arena, Ambli, Ahmedabad, Gujarat 380058`
 
-Each basement can host **multiple company slot pools + general slots**:
+## Basements
 
-| Basement | Pools |
-|---|---|
-| B1 | General + Nexus + Orbit + Pixel |
-| B2 | General + Nexus + Orbit |
+| Basement | Kind | Pools |
+|---|---|---|
+| B1 | GENERAL | General parking only (guests / unknown plates) |
+| B2 | MULTI_COMPANY | York IE + Nexus + Orbit |
+| B3 | MULTI_COMPANY | York IE + Nexus |
 
-Allotment inside a pool is **first-come-first-serve** (lowest free slot id).
+Same company slots share the same color on the map.
 
-## Stack
+## Screens
 
-- Admin: React (Vite)
-- API: Node.js + Express + Socket.io
-- ALPR: Python FastAPI + OpenCV + Tesseract
-- DB: MySQL database `parking` (Laragon-compatible)
+- **Basement Map** — whole basement visual by company color
+- **Check-in Gate** — webcam auto-scan + success popup
+- **Check-out Gate** — webcam auto-scan exit
+- **User Display** — realtime allotted slot blink + scanned plate + success popup
 
 ## Run
 
 ```bash
-# 1) MySQL up, then:
 cp backend/.env.example backend/.env
 npm run setup
-
-# 2) Python OCR deps (once)
 sudo apt-get install -y tesseract-ocr
 python3 -m pip install -r alpr-service/requirements.txt
 
-# 3) Start services
 npm run dev:api
 npm run dev:alpr
 npm run dev:admin
 ```
 
 - Admin: http://localhost:5173
-- API: http://localhost:4000
-- ALPR: http://localhost:5001
 - Login: `admin@parking.local` / `Admin@123`
 
-## Demo plates
+## York IE demo plates
 
-- `MH12AB1234` → Nexus company pool
-- `GJ01GH3456` → Orbit company pool
-- Any unknown plate → guest register + general slot
+- `GJ01YK1001` (car)
+- `GJ01YK2044` (car)
+- `GJ01YK1002` (bike)
+
+Sample plate images: `docs/sample-plates/`
+
+Unknown plate → auto guest register → **Basement 1 General**.
+
+## Docs
+
+- `docs/BLUEPRINT.md`
+- `docs/PROJECT_HANDOFF.md`
