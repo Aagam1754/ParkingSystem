@@ -100,10 +100,14 @@ export default function CheckIn() {
       }
 
       setStatus('Scanning plate…');
-      // One OCR call on guide crop (fast). Fallback to full frame if needed.
+      // One OCR call on yellow-guide crop only (fast). Skip fallback if scanner busy.
       let scanned = await AlprAPI.scan({ imageBase64: frames[0] });
-      if (!scanned?.plate && frames[1]) {
+      if (!scanned?.plate && scanned?.engine !== 'busy' && frames[1]) {
         scanned = await AlprAPI.scan({ imageBase64: frames[1] });
+      }
+      if (scanned?.engine === 'busy') {
+        setStatus('Scanner catching up — keep plate in the yellow box');
+        return;
       }
 
       if (scanned?.plate) {
@@ -152,7 +156,7 @@ export default function CheckIn() {
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 2000); // 2s — avoid overlapping slow OCR calls
+    }, 3500); // wait for OCR to finish; avoid stacking scans
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);
@@ -197,7 +201,7 @@ export default function CheckIn() {
       <div className="topbar">
         <div>
           <h2>Check-in gate</h2>
-          <p>Auto webcam scan every second → company from DB → allot slot</p>
+          <p>Hold the plate inside the yellow box (max phone brightness). Demo buttons work if webcam OCR is weak.</p>
         </div>
         <span className="live-pill">
           <i />
@@ -263,11 +267,32 @@ export default function CheckIn() {
               {ocrHint ? <div className="muted" style={{ marginTop: 8 }}>OCR: {ocrHint}</div> : null}
             </div>
             <p className="muted" style={{ marginTop: 12 }}>
-              York IE demo plates: <b>GJ01YK1001</b>, <b>GJ01YK2044</b>
+              If webcam is slow/glare, use one-click demo check-in:
             </p>
-            <p className="muted">
-              Use photo from <b>docs/sample-plates/car-photo-GJ01YK1001.png</b> or Upload button if webcam OCR struggles.
-            </p>
+            <div className="actions">
+              {['GJ01YK1001', 'GJ01YK2044', 'MH12AB1234'].map((p) => (
+                <button
+                  key={p}
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={async () => {
+                    setStatus(`Checking in ${p}…`);
+                    setError('');
+                    try {
+                      const data = await AlprAPI.checkIn({ plate: p, source: 'WEBCAM' });
+                      setDetectedPlate(p);
+                      setResult(data);
+                      if (data.allotted) onCheckinSuccess(data);
+                      else setError(data.reason || 'Not allotted');
+                    } catch (err) {
+                      setError(err.message);
+                    }
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </section>
 
           {result?.allotted ? (
