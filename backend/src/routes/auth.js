@@ -52,6 +52,11 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error(err);
+    if (err?.code === 'ECONNREFUSED' || err?.code === 'PROTOCOL_CONNECTION_LOST') {
+      return res.status(503).json({
+        error: 'Database unavailable. Start MySQL/MariaDB on port 3306, then try again.',
+      });
+    }
     return res.status(500).json({ error: 'Login failed' });
   }
 });
