@@ -10,16 +10,17 @@ async function insertSlotBatch(values) {
   for (let i = 0; i < values.length; i += chunk) {
     await query(
       `INSERT INTO slots
-        (base_id, company_id, owner_type, code, vehicle_type, status, row_no, col_no)
+        (base_id, company_id, owner_type, code, vehicle_type, status, has_ev_charger, row_no, col_no)
        VALUES ?`,
       [values.slice(i, i + chunk)]
     );
   }
 }
 
-function buildSlots({ baseId, companyId, ownerType, prefix, carCount, bikeCount }) {
+function buildSlots({ baseId, companyId, ownerType, prefix, carCount, bikeCount, evEvery = 0 }) {
   const values = [];
   for (let i = 1; i <= carCount; i += 1) {
+    const hasEv = evEvery > 0 && i % evEvery === 0 ? 1 : 0;
     values.push([
       baseId,
       companyId,
@@ -27,6 +28,7 @@ function buildSlots({ baseId, companyId, ownerType, prefix, carCount, bikeCount 
       `${prefix}-C${String(i).padStart(2, '0')}`,
       'CAR',
       'FREE',
+      hasEv,
       Math.ceil(i / 10),
       ((i - 1) % 10) + 1,
     ]);
@@ -39,6 +41,7 @@ function buildSlots({ baseId, companyId, ownerType, prefix, carCount, bikeCount 
       `${prefix}-B${String(i).padStart(2, '0')}`,
       'BIKE',
       'FREE',
+      0,
       Math.ceil(i / 10),
       ((i - 1) % 10) + 1,
     ]);
@@ -58,6 +61,7 @@ async function seed() {
     'alpr_events',
     'vehicle_authorizations',
     'vehicles',
+    'parking_rates',
     'slots',
     'company_base_allocations',
     'bases',
@@ -160,7 +164,7 @@ async function seed() {
   );
 
   const slotValues = [
-    // B1 GENERAL only
+    // B1 GENERAL only — lighter EV set for visitors
     ...buildSlots({
       baseId: b1,
       companyId: null,
@@ -168,8 +172,9 @@ async function seed() {
       prefix: 'B1G',
       carCount: 50,
       bikeCount: 30,
+      evEvery: 10,
     }),
-    // B2 multi-company
+    // B2 multi-company — denser EV on company floors
     ...buildSlots({
       baseId: b2,
       companyId: yorkId,
@@ -177,6 +182,7 @@ async function seed() {
       prefix: 'B2Y',
       carCount: 20,
       bikeCount: 12,
+      evEvery: 4,
     }),
     ...buildSlots({
       baseId: b2,
@@ -185,6 +191,7 @@ async function seed() {
       prefix: 'B2N',
       carCount: 15,
       bikeCount: 10,
+      evEvery: 5,
     }),
     ...buildSlots({
       baseId: b2,
@@ -193,6 +200,7 @@ async function seed() {
       prefix: 'B2O',
       carCount: 12,
       bikeCount: 8,
+      evEvery: 4,
     }),
     // B3 multi-company
     ...buildSlots({
@@ -202,6 +210,7 @@ async function seed() {
       prefix: 'B3Y',
       carCount: 18,
       bikeCount: 10,
+      evEvery: 3,
     }),
     ...buildSlots({
       baseId: b3,
@@ -210,9 +219,22 @@ async function seed() {
       prefix: 'B3N',
       carCount: 12,
       bikeCount: 8,
+      evEvery: 4,
     }),
   ];
   await insertSlotBatch(slotValues);
+
+  await query(
+    `INSERT INTO parking_rates
+      (session_type, vehicle_type, hourly_inr, daily_cap_inr, notes)
+     VALUES
+      ('COMPANY', 'CAR', 0, 0, 'Corporate members — complimentary while employed'),
+      ('COMPANY', 'BIKE', 0, 0, 'Corporate members — complimentary while employed'),
+      ('GENERAL', 'CAR', 30, 200, 'Registered general / overflow pool'),
+      ('GENERAL', 'BIKE', 15, 100, 'Registered general / overflow pool'),
+      ('GUEST', 'CAR', 40, 250, 'Visitor / unknown plate auto-guest'),
+      ('GUEST', 'BIKE', 20, 120, 'Visitor / unknown plate auto-guest')`
+  );
 
   const vehicleRows = [
     // York IE demo plates

@@ -114,3 +114,17 @@ export const AlprAPI = {
       body: JSON.stringify(payload),
     }),
 };
+
+export const AssistantAPI = {
+  context: () => api('/api/assistant/context'),
+  chat: (payload) =>
+    api('/api/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  estimate: (payload) =>
+    api('/api/assistant/estimate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};

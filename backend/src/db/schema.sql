@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS parking_sessions;
 DROP TABLE IF EXISTS alpr_events;
 DROP TABLE IF EXISTS vehicle_authorizations;
 DROP TABLE IF EXISTS vehicles;
+DROP TABLE IF EXISTS parking_rates;
 DROP TABLE IF EXISTS slots;
 DROP TABLE IF EXISTS company_base_allocations;
 DROP TABLE IF EXISTS bases;
@@ -103,14 +104,28 @@ CREATE TABLE slots (
   code VARCHAR(40) NOT NULL,
   vehicle_type ENUM('CAR','BIKE') NOT NULL,
   status ENUM('FREE','OCCUPIED','RESERVED','OUT_OF_SERVICE') NOT NULL DEFAULT 'FREE',
+  has_ev_charger TINYINT(1) NOT NULL DEFAULT 0,
   row_no INT NOT NULL DEFAULT 1,
   col_no INT NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_slots_base_code (base_id, code),
   KEY idx_slots_fcfs (base_id, owner_type, company_id, vehicle_type, status, id),
+  KEY idx_slots_ev (has_ev_charger, status),
   CONSTRAINT fk_slots_base FOREIGN KEY (base_id) REFERENCES bases(id),
   CONSTRAINT fk_slots_company FOREIGN KEY (company_id) REFERENCES companies(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Hourly parking tariffs used by Smart Parking Assistant cost estimates
+CREATE TABLE parking_rates (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_type ENUM('COMPANY','GENERAL','GUEST') NOT NULL,
+  vehicle_type ENUM('CAR','BIKE') NOT NULL,
+  hourly_inr DECIMAL(10,2) NOT NULL,
+  daily_cap_inr DECIMAL(10,2) NULL,
+  notes VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_rate (session_type, vehicle_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE vehicles (

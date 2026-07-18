@@ -10,6 +10,7 @@ import ScanDesk from './pages/ScanDesk';
 import Sessions from './pages/Sessions';
 import Vehicles from './pages/Vehicles';
 import Registry from './pages/Registry';
+import Assistant from './pages/Assistant';
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="sessions" element={<Sessions />} />
             <Route path="vehicles" element={<Vehicles />} />
             <Route path="registry" element={<Registry />} />
+            <Route path="assistant" element={<Assistant />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
