@@ -49,12 +49,13 @@ Build a smart parking system that:
            └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
-### Planned later
+### Member app (Phase C — started)
 ```text
-React Native App (members/guests)
+Expo React Native (`app/`)
+  members: login · current slot · vehicles · history
         │
         ▼
-   same Express API + MySQL
+   same Express API (`/api/me/*`) + MySQL
 ```
 
 ---
@@ -72,7 +73,7 @@ React Native App (members/guests)
 | M7 | **Admin UI** | Control room screens |
 | M8 | **Realtime** | Socket.io occupancy/session events |
 | M9 | **Incidents / Audit** | Guest register, lot full, overrides |
-| M10 | **Mobile App** | Not built yet |
+| M10 | **Mobile App** | Expo member app in `app/` (guest lookup later) |
 
 ---
 
@@ -311,6 +312,14 @@ Vehicles / Registry
   GET      /api/dashboard/companies
   GET      /api/dashboard/members
   GET      /api/dashboard/incidents
+
+Member (mobile)
+  GET   /api/me/profile
+  GET   /api/me/vehicles
+  PATCH /api/me/vehicles/:id/status
+  POST  /api/me/vehicles/temp-claim
+  GET   /api/me/sessions/current
+  GET   /api/me/sessions
 ```
 
 Realtime events:
@@ -327,6 +336,7 @@ Realtime events:
 | Express API | 4000 | `npm run dev:api` |
 | Python ALPR | 5001 | `npm run dev:alpr` |
 | React Admin | 5173 | `npm run dev:admin` |
+| Expo Member App | Metro | `npm run dev:app` |
 
 DB: **`parking`**
 
@@ -364,10 +374,11 @@ DB: **`parking`**
 - Live map by pool
 - Webcam + Python OCR path
 
-### Phase C — Next
-- React Native member/guest app
-- In-service / alternate vehicle claim
-- Operator approval queue
+### Phase C — In progress
+- [x] React Native member app (`app/`)
+- [x] In-service / alternate vehicle claim (member API + UI)
+- [ ] Guest plate lookup in mobile
+- [ ] Operator approval queue
 
 ### Phase D — Polish
 - Better ALPR model
@@ -408,6 +419,8 @@ DB: **`parking`**
 | Python OCR | `alpr-service/app.py` |
 | Live map UI | `admin/src/pages/LiveMap.jsx` |
 | Webcam UI | `admin/src/pages/WebcamScan.jsx` |
+| Member app | `app/` (Expo) |
+| Member APIs | `backend/src/routes/me.js` |
 | Teammate onboarding | `docs/PROJECT_HANDOFF.md` |
 | This blueprint | `docs/BLUEPRINT.md` |
 
@@ -415,8 +428,8 @@ DB: **`parking`**
 
 ## 17. Blueprint status
 
-**Status:** FINAL for current admin + ALPR milestone  
+**Status:** Admin + ALPR + member mobile (Phase C started)  
 **Branch:** `cursor/admin-panel-parking-b166`  
-**Next blueprint extension:** Mobile app + exception workflows
+**Next blueprint extension:** Operator approval queue + guest mobile lookup
 
 If implementation and this document disagree, update this blueprint after verifying branch code.

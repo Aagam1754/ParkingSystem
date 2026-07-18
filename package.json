@@ -8,6 +8,7 @@
     "dev:api": "npm run dev --prefix backend",
     "dev:admin": "npm run dev --prefix admin",
     "dev:alpr": "cd alpr-service && python3 -m uvicorn app:app --host 0.0.0.0 --port 5001",
-    "setup": "npm install --prefix backend && npm install --prefix admin && npm run db:init && npm run db:seed"
+    "dev:app": "npm run start --prefix app",
+    "setup": "npm install --prefix backend && npm install --prefix admin && npm install --prefix app && npm run db:init && npm run db:seed"
   }
 }

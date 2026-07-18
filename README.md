@@ -25,6 +25,7 @@ Allotment inside a pool is **first-come-first-serve** (lowest free slot id).
 ## Stack
 
 - Admin: React (Vite)
+- Member app: React Native (Expo) in `app/`
 - API: Node.js + Express + Socket.io
 - ALPR: Python FastAPI + OpenCV + Tesseract
 - DB: MySQL database `parking` (Laragon-compatible)
@@ -44,12 +45,15 @@ python3 -m pip install -r alpr-service/requirements.txt
 npm run dev:api
 npm run dev:alpr
 npm run dev:admin
+npm run dev:app
 ```
 
 - Admin: http://localhost:5173
 - API: http://localhost:4000
 - ALPR: http://localhost:5001
-- Login: `admin@parking.local` / `Admin@123`
+- Member app: Expo (`npm run dev:app`) — see `app/README.md`
+- Admin login: `admin@parking.local` / `Admin@123`
+- Member login: `aisha@nexus.local` / `Admin@123`
 
 ## Demo plates
 
