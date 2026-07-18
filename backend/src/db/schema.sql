@@ -1,0 +1,198 @@
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS incidents;
+DROP TABLE IF EXISTS slot_assignments;
+DROP TABLE IF EXISTS parking_sessions;
+DROP TABLE IF EXISTS alpr_events;
+DROP TABLE IF EXISTS vehicle_authorizations;
+DROP TABLE IF EXISTS vehicles;
+DROP TABLE IF EXISTS slots;
+DROP TABLE IF EXISTS bases;
+DROP TABLE IF EXISTS companies;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  role ENUM('SUPER_ADMIN','LOT_ADMIN','SECURITY_OPERATOR','CORPORATE_MEMBER','GUEST') NOT NULL,
+  company_id BIGINT UNSIGNED NULL,
+  email VARCHAR(190) NULL,
+  phone VARCHAR(40) NULL,
+  password_hash VARCHAR(255) NULL,
+  full_name VARCHAR(120) NOT NULL,
+  employee_code VARCHAR(60) NULL,
+  status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  UNIQUE KEY uq_users_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE companies (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  code VARCHAR(40) NOT NULL,
+  status ENUM('ACTIVE','SUSPENDED') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_companies_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE bases (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT UNSIGNED NULL,
+  name VARCHAR(120) NOT NULL,
+  code VARCHAR(40) NOT NULL,
+  base_type ENUM('GENERAL','COMPANY') NOT NULL,
+  description VARCHAR(255) NULL,
+  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_bases_code (code),
+  KEY idx_bases_type (base_type),
+  CONSTRAINT fk_bases_company FOREIGN KEY (company_id) REFERENCES companies(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE slots (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  base_id BIGINT UNSIGNED NOT NULL,
+  code VARCHAR(40) NOT NULL,
+  vehicle_type ENUM('CAR','BIKE') NOT NULL,
+  status ENUM('FREE','OCCUPIED','RESERVED','OUT_OF_SERVICE') NOT NULL DEFAULT 'FREE',
+  row_no INT NOT NULL DEFAULT 1,
+  col_no INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_slots_base_code (base_id, code),
+  KEY idx_slots_lookup (base_id, vehicle_type, status),
+  CONSTRAINT fk_slots_base FOREIGN KEY (base_id) REFERENCES bases(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE vehicles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT UNSIGNED NULL,
+  owner_user_id BIGINT UNSIGNED NULL,
+  plate_raw VARCHAR(40) NOT NULL,
+  plate_normalized VARCHAR(40) NOT NULL,
+  vehicle_type ENUM('CAR','BIKE') NOT NULL,
+  make VARCHAR(80) NULL,
+  model VARCHAR(80) NULL,
+  color VARCHAR(40) NULL,
+  status ENUM('ACTIVE','IN_SERVICE','BLOCKED','PENDING_VERIFICATION') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  UNIQUE KEY uq_vehicles_plate (plate_normalized),
+  KEY idx_vehicles_company (company_id),
+  CONSTRAINT fk_vehicles_company FOREIGN KEY (company_id) REFERENCES companies(id),
+  CONSTRAINT fk_vehicles_owner FOREIGN KEY (owner_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE vehicle_authorizations (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  vehicle_id BIGINT UNSIGNED NOT NULL,
+  auth_type ENUM('OWNED','TEMP_SERVICE','SHARED') NOT NULL DEFAULT 'OWNED',
+  status ENUM('ACTIVE','EXPIRED','REVOKED','PENDING_APPROVAL') NOT NULL DEFAULT 'ACTIVE',
+  valid_from DATETIME NOT NULL,
+  valid_to DATETIME NULL,
+  created_by BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_auth_vehicle (vehicle_id, status),
+  KEY idx_auth_user (user_id, status),
+  CONSTRAINT fk_auth_user FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_auth_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE alpr_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  base_hint_id BIGINT UNSIGNED NULL,
+  plate_raw VARCHAR(40) NOT NULL,
+  plate_normalized VARCHAR(40) NOT NULL,
+  vehicle_type_hint ENUM('CAR','BIKE') NULL,
+  confidence DECIMAL(5,4) NOT NULL DEFAULT 0.9000,
+  lane_type ENUM('ENTRY','EXIT') NOT NULL DEFAULT 'ENTRY',
+  image_path VARCHAR(255) NULL,
+  processing_status ENUM('RECEIVED','PROCESSED','FAILED','DUPLICATE') NOT NULL DEFAULT 'RECEIVED',
+  idempotency_key VARCHAR(80) NOT NULL,
+  observed_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_alpr_idem (idempotency_key),
+  KEY idx_alpr_plate (plate_normalized)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE parking_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  base_id BIGINT UNSIGNED NOT NULL,
+  slot_id BIGINT UNSIGNED NULL,
+  plate_normalized VARCHAR(40) NOT NULL,
+  vehicle_id BIGINT UNSIGNED NULL,
+  user_id BIGINT UNSIGNED NULL,
+  company_id BIGINT UNSIGNED NULL,
+  vehicle_type ENUM('CAR','BIKE') NOT NULL,
+  session_type ENUM('COMPANY','GENERAL') NOT NULL,
+  status ENUM(
+    'DETECTED','IDENTIFIED','ALLOTTED','PARKED','EXITING','CLOSED','DENIED','CANCELLED'
+  ) NOT NULL DEFAULT 'DETECTED',
+  entry_event_id BIGINT UNSIGNED NULL,
+  exit_event_id BIGINT UNSIGNED NULL,
+  denial_reason VARCHAR(255) NULL,
+  allotment_note VARCHAR(255) NULL,
+  is_open TINYINT(1) NULL,
+  started_at DATETIME NOT NULL,
+  allotted_at DATETIME NULL,
+  exited_at DATETIME NULL,
+  closed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_open_plate (plate_normalized, is_open),
+  KEY idx_sessions_base_status (base_id, status),
+  CONSTRAINT fk_sessions_base FOREIGN KEY (base_id) REFERENCES bases(id),
+  CONSTRAINT fk_sessions_slot FOREIGN KEY (slot_id) REFERENCES slots(id),
+  CONSTRAINT fk_sessions_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id),
+  CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE slot_assignments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  parking_session_id BIGINT UNSIGNED NOT NULL,
+  slot_id BIGINT UNSIGNED NOT NULL,
+  assigned_by ENUM('ENGINE','OPERATOR','SYSTEM') NOT NULL DEFAULT 'ENGINE',
+  assignment_reason VARCHAR(120) NULL,
+  is_active TINYINT(1) NULL,
+  assigned_at DATETIME NOT NULL,
+  released_at DATETIME NULL,
+  UNIQUE KEY uq_active_slot (slot_id, is_active),
+  KEY idx_assign_session (parking_session_id),
+  CONSTRAINT fk_assign_session FOREIGN KEY (parking_session_id) REFERENCES parking_sessions(id),
+  CONSTRAINT fk_assign_slot FOREIGN KEY (slot_id) REFERENCES slots(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE incidents (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  base_id BIGINT UNSIGNED NULL,
+  session_id BIGINT UNSIGNED NULL,
+  type ENUM('UNRECOGNIZED_PLATE','LOT_FULL','OVERSTAY','MANUAL_OVERRIDE','BLACKLIST_HIT') NOT NULL,
+  severity ENUM('LOW','MEDIUM','HIGH') NOT NULL DEFAULT 'MEDIUM',
+  status ENUM('OPEN','ACKED','RESOLVED') NOT NULL DEFAULT 'OPEN',
+  message VARCHAR(255) NOT NULL,
+  payload_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  actor_user_id BIGINT UNSIGNED NULL,
+  action VARCHAR(80) NOT NULL,
+  entity_type VARCHAR(60) NOT NULL,
+  entity_id BIGINT UNSIGNED NULL,
+  details_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

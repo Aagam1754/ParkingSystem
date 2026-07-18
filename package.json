@@ -1,0 +1,12 @@
+{
+  "name": "parkingsystem",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "db:init": "npm run db:init --prefix backend",
+    "db:seed": "npm run db:seed --prefix backend",
+    "dev:api": "npm run dev --prefix backend",
+    "dev:admin": "npm run dev --prefix admin",
+    "setup": "npm install --prefix backend && npm install --prefix admin && npm run db:init && npm run db:seed"
+  }
+}
