@@ -13,10 +13,16 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+const allowOrigin =
+  !process.env.CLIENT_ORIGIN || process.env.CLIENT_ORIGIN === '*'
+    ? true
+    : process.env.CLIENT_ORIGIN;
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN || '*',
+    origin: allowOrigin,
     methods: ['GET', 'POST', 'PATCH'],
+    credentials: true,
   },
 });
 
@@ -24,7 +30,7 @@ app.set('io', io);
 
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || true,
+    origin: allowOrigin,
     credentials: true,
   })
 );
@@ -45,6 +51,6 @@ io.on('connection', (socket) => {
 });
 
 const port = Number(process.env.PORT || 4000);
-server.listen(port, () => {
-  console.log(`Parking API listening on http://localhost:${port}`);
+server.listen(port, '0.0.0.0', () => {
+  console.log(`Parking API listening on http://0.0.0.0:${port}`);
 });
