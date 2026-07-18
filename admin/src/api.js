@@ -135,7 +135,7 @@ export const AssistantAPI = {
       body: JSON.stringify(payload),
     }),
   /** Returns an audio Blob (mp3) from ElevenLabs via the API */
-  speak: async (text) => {
+  speak: async (text, { signal } = {}) => {
     const headers = { 'Content-Type': 'application/json' };
     const token = getAuthToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -146,14 +146,22 @@ export const AssistantAPI = {
         method: 'POST',
         headers,
         body: JSON.stringify({ text }),
+        signal,
       });
-    } catch {
-      throw new Error('Cannot reach API for speech. Is the backend running?');
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      throw new Error('Cannot reach API for speech. Is the backend running on port 4000?');
     }
 
     if (!res.ok) {
       if (res.status === 401) clearAuthToken();
       const data = await res.json().catch(() => ({}));
+      if (res.status === 502 || res.status === 503) {
+        throw new Error(
+          data.error ||
+            'Speech gateway error — API may be restarting. Wait a second and try Speak again.'
+        );
+      }
       throw new Error(data.error || `Speech failed (${res.status})`);
     }
     return res.blob();

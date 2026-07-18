@@ -77,10 +77,15 @@ export async function synthesizeSpeech(text) {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    const err = new Error(
-      `ElevenLabs TTS failed (${res.status}): ${detail.slice(0, 240) || res.statusText}`
-    );
-    err.status = res.status === 401 ? 502 : 502;
+    let message = detail.slice(0, 240) || res.statusText;
+    try {
+      const parsed = JSON.parse(detail);
+      message = parsed.detail?.message || parsed.message || parsed.error || message;
+    } catch {
+      /* keep text */
+    }
+    const err = new Error(`ElevenLabs TTS failed (${res.status}): ${message}`);
+    err.status = res.status >= 400 && res.status < 600 ? res.status : 502;
     throw err;
   }
 
