@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlprAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
+import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
 
 export default function CheckOut() {
-  const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const streamRef = useRef(null);
   const lastPlateRef = useRef('');
   const stableCountRef = useRef(0);
   const scanningRef = useRef(false);
+  const { videoRef, cameraOn, cameraError, startCamera, stopCamera, setCameraError } = useCamera();
 
-  const [cameraOn, setCameraOn] = useState(false);
   const [autoScan, setAutoScan] = useState(true);
   const [detectedPlate, setDetectedPlate] = useState('');
   const [confidence, setConfidence] = useState(0);
@@ -20,57 +19,41 @@ export default function CheckOut() {
   const [status, setStatus] = useState('Check-out camera ready');
   const [popup, setPopup] = useState({ open: false, title: '', lines: [] });
 
-  const onCheckoutSuccess = useCallback((payload) => {
-    if (!payload?.closed) return;
-    setResult(payload);
-    setPopup({
-      open: true,
-      title: 'Check-out success',
-      lines: [
-        `Plate ${payload.session?.plate_normalized || detectedPlate}`,
-        'Slot freed · session closed',
-        'Thank you — drive safe',
-      ],
-    });
-  }, [detectedPlate]);
+  const onCheckoutSuccess = useCallback(
+    (payload) => {
+      if (!payload?.closed) return;
+      setResult(payload);
+      setPopup({
+        open: true,
+        title: 'Check-out success',
+        lines: [
+          `Plate ${payload.session?.plate_normalized || detectedPlate}`,
+          'Slot freed · session closed',
+          'Thank you — drive safe',
+        ],
+      });
+    },
+    [detectedPlate]
+  );
 
   const { live } = useSocket({
     'checkout.success': onCheckoutSuccess,
   });
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks()?.forEach((t) => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraOn(false);
-  }, []);
-
-  useEffect(() => () => stopCamera(), [stopCamera]);
-
-  async function startCamera() {
-    setError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraOn(true);
-      setAutoScan(true);
-      setStatus('Auto-scan ON — show plate to exit');
-    } catch (err) {
-      setError(err.message);
-    }
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await startCamera();
+      if (!cancelled) setStatus('Auto-scan ON — show plate to exit');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [startCamera]);
 
   useEffect(() => {
-    startCamera();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (cameraError) setError(cameraError);
+  }, [cameraError]);
 
   function captureFrameBase64() {
     const video = videoRef.current;
@@ -110,7 +93,11 @@ export default function CheckOut() {
     scanningRef.current = true;
     setError('');
     try {
-      const data = await AlprAPI.checkOut({ plate, confidence: confidence || 0.9, source: 'WEBCAM' });
+      const data = await AlprAPI.checkOut({
+        plate,
+        confidence: confidence || 0.9,
+        source: 'WEBCAM',
+      });
       setResult(data);
       onCheckoutSuccess(data);
     } catch (err) {
@@ -164,7 +151,19 @@ export default function CheckOut() {
           <div className="panel-header">
             <h3>Exit camera</h3>
             <div className="actions">
-              <button className="btn btn-secondary" type="button" onClick={cameraOn ? stopCamera : startCamera}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={async () => {
+                  if (cameraOn) stopCamera();
+                  else {
+                    setCameraError('');
+                    setError('');
+                    await startCamera();
+                    setStatus('Auto-scan ON — show plate to exit');
+                  }
+                }}
+              >
                 {cameraOn ? 'Stop cam' : 'Start cam'}
               </button>
               <button className="btn btn-primary" type="button" onClick={() => setAutoScan((v) => !v)}>

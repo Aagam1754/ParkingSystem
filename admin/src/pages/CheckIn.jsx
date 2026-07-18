@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlprAPI, BasesAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
+import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
 
 export default function CheckIn() {
-  const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const streamRef = useRef(null);
   const lastPlateRef = useRef('');
   const stableCountRef = useRef(0);
   const scanningRef = useRef(false);
+  const { videoRef, cameraOn, cameraError, startCamera, stopCamera, setCameraError } = useCamera();
 
   const [bases, setBases] = useState([]);
   const [baseId, setBaseId] = useState('');
   const [vehicleType, setVehicleType] = useState('CAR');
-  const [cameraOn, setCameraOn] = useState(false);
   const [autoScan, setAutoScan] = useState(true);
   const [detectedPlate, setDetectedPlate] = useState('');
   const [confidence, setConfidence] = useState(0);
@@ -55,43 +54,20 @@ export default function CheckIn() {
       .catch((err) => setError(err.message));
   }, []);
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks()?.forEach((t) => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraOn(false);
-  }, []);
-
-  useEffect(() => () => stopCamera(), [stopCamera]);
-
-  async function startCamera() {
-    setError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraOn(true);
-      setAutoScan(true);
-      setStatus('Auto-scan ON — show number plate');
-    } catch (err) {
-      setError(
-        err?.name === 'NotAllowedError'
-          ? 'Camera permission denied. Allow webcam access.'
-          : `Camera error: ${err.message}`
-      );
-    }
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await startCamera();
+      if (!cancelled) setStatus('Auto-scan ON — show number plate');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [startCamera]);
 
   useEffect(() => {
-    startCamera();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (cameraError) setError(cameraError);
+  }, [cameraError]);
 
   function captureFrameBase64() {
     const video = videoRef.current;
@@ -194,7 +170,19 @@ export default function CheckIn() {
           <div className="panel-header">
             <h3>Entry camera</h3>
             <div className="actions">
-              <button className="btn btn-secondary" type="button" onClick={cameraOn ? stopCamera : startCamera}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={async () => {
+                  if (cameraOn) stopCamera();
+                  else {
+                    setCameraError('');
+                    setError('');
+                    await startCamera();
+                    setStatus('Auto-scan ON — show number plate');
+                  }
+                }}
+              >
                 {cameraOn ? 'Stop cam' : 'Start cam'}
               </button>
               <button className="btn btn-primary" type="button" onClick={() => setAutoScan((v) => !v)}>
