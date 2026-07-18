@@ -30,22 +30,36 @@ async function getKnownPlates() {
 }
 
 async function runOcr(imageBase64, knownPlates) {
-  const response = await fetch(`${PYTHON_ALPR_URL}/scan`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      imageBase64,
-      knownPlates,
-    }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const err = new Error(data.error || data.message || 'Python ALPR failed');
-    err.status = response.status;
-    err.detail = data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${PYTHON_ALPR_URL}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64,
+        knownPlates,
+      }),
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(data.error || data.message || 'Python ALPR failed');
+      err.status = response.status;
+      err.detail = data;
+      throw err;
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Plate scan timed out — hold plate closer/ steadier, or use Upload plate photo');
+      timeoutErr.status = 504;
+      throw timeoutErr;
+    }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 function applyKnownMatch(ocr, knownPlates) {
@@ -100,24 +114,39 @@ router.post(
   async (req, res) => {
     try {
       const body = req.body || {};
-      let plate = body.plate;
+      const source = body.source || 'WEBCAM';
+      let plate = null;
       let confidence = Number(body.confidence ?? 0.9);
       let ocr = null;
       const knownPlates = await getKnownPlates();
 
-      if (body.imageBase64) {
-        ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
-        if (!plate && ocr.plate) {
-          plate = ocr.plate;
-          confidence = Number(ocr.confidence ?? confidence);
-        } else if (plate) {
-          // prefer DB-resolved OCR plate when image is present
-          const resolved = resolvePlateFromOcr(ocr, knownPlates);
-          if (resolved.matched) plate = resolved.plate;
+      // Gate check-in: WEBCAM must scan an image — never allot from typed/demo plate alone
+      const indianPlate = /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}$/;
+
+      if (source === 'WEBCAM') {
+        if (!body.imageBase64) {
+          return res.status(422).json({
+            error: 'Camera image required. Slot is allotted only after a plate scan.',
+          });
         }
-      } else if (plate) {
-        const resolved = resolvePlateFromOcr({ plate }, knownPlates);
-        if (resolved.matched) plate = resolved.plate;
+        ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
+        plate = ocr.plate || null;
+        confidence = Number(ocr.confidence ?? confidence);
+        // Reject OCR garbage — only known plates or valid Indian plate format
+        if (plate && !ocr.matchedRegistered && !indianPlate.test(String(plate).toUpperCase())) {
+          return res.status(422).json({
+            error: 'Plate not clear enough yet. Hold the number plate steady in the yellow box.',
+            ocr,
+          });
+        }
+      } else if (body.imageBase64) {
+        ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
+        plate = ocr.plate || null;
+        confidence = Number(ocr.confidence ?? confidence);
+      } else if (body.plate) {
+        // Manual desk / non-webcam tools only
+        const resolved = resolvePlateFromOcr({ plate: body.plate }, knownPlates);
+        plate = resolved.plate || null;
       }
 
       if (!plate) {
@@ -141,7 +170,7 @@ router.post(
           confidence,
           // no manual basement — engine picks company/general pool
           baseId: null,
-          source: body.source || 'WEBCAM',
+          source,
           idempotencyKey: body.idempotencyKey,
         })
       );

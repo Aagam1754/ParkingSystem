@@ -1,26 +1,29 @@
 """
-ParkLane ALPR microservice
-Webcam frame → OpenCV preprocess → Tesseract → plate text
-Also matches against known registered plates when provided.
+ParkLane ALPR — single-flight OCR with hard process timeouts.
+Optimized for webcam demos (phone screen → camera).
 """
 
 from __future__ import annotations
 
 import base64
 import io
+import os
 import re
+import subprocess
+import tempfile
+import threading
+import time
 from typing import Optional
 
 import cv2
 import numpy as np
-import pytesseract
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw, ImageFont
 
-app = FastAPI(title="ParkLane ALPR", version="1.1.0")
+app = FastAPI(title="ParkLane ALPR", version="1.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,11 +32,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PLATE_REGEXES = [
-    re.compile(r"([A-Z]{2}\s*\d{1,2}\s*[A-Z]{1,3}\s*\d{3,4})"),
-    re.compile(r"([A-Z]{2}\d{2}[A-Z]{2}\d{4})"),
-    re.compile(r"([A-Z0-9]{6,12})"),
-]
+OCR_LOCK = threading.Lock()
+TESSERACT_BIN = os.environ.get("TESSERACT_CMD", "tesseract")
+OCR_TIMEOUT_SEC = float(os.environ.get("OCR_TIMEOUT_SEC", "4"))
 
 
 class ScanRequest(BaseModel):
@@ -62,153 +63,195 @@ def decode_image(image_base64: str) -> np.ndarray:
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Could not decode image")
+    h, w = img.shape[:2]
+    if max(h, w) > 720:
+        scale = 720 / max(h, w)
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     return img
 
 
-def preprocess_variants(img: np.ndarray) -> list[np.ndarray]:
-    h, w = img.shape[:2]
-    rois = [img]
-    # multiple crops — phone may not sit exactly in center guide
-    crops = [
-        (0.08, 0.25, 0.92, 0.80),
-        (0.15, 0.35, 0.85, 0.70),
-        (0.05, 0.15, 0.95, 0.90),
-        (0.20, 0.40, 0.80, 0.62),
-    ]
-    for x1r, y1r, x2r, y2r in crops:
-        x1, y1, x2, y2 = int(w * x1r), int(h * y1r), int(w * x2r), int(h * y2r)
-        if x2 > x1 and y2 > y1:
-            rois.append(img[y1:y2, x1:x2])
-
-    variants: list[np.ndarray] = []
-    for source in rois:
-        gray = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
-        # boost contrast for phone-screen glare
-        gray = cv2.convertScaleAbs(gray, alpha=1.4, beta=10)
-        gray = cv2.bilateralFilter(gray, 9, 75, 75)
-        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(gray)
-        sharp = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]]))
-        variants.append(sharp)
-
-        scale = max(1.5, 1400 / max(sharp.shape[:2]))
-        big = cv2.resize(sharp, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        variants.append(big)
-
-        thr = cv2.adaptiveThreshold(
-            big, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5
-        )
-        variants.append(thr)
-        variants.append(cv2.bitwise_not(thr))
-        _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        variants.append(otsu)
-        variants.append(cv2.bitwise_not(otsu))
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        variants.append(cv2.morphologyEx(thr, cv2.MORPH_CLOSE, kernel))
-
-    return variants
+def run_tesseract(img: np.ndarray, psm: int = 7) -> str:
+    """Run tesseract in a subprocess with a hard kill timeout."""
+    if img is None or img.size == 0:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="plocr_") as td:
+        in_path = os.path.join(td, "in.png")
+        out_base = os.path.join(td, "out")
+        cv2.imwrite(in_path, img)
+        cmd = [
+            TESSERACT_BIN,
+            in_path,
+            out_base,
+            "--oem",
+            "1",
+            "--psm",
+            str(psm),
+            "-c",
+            "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=OCR_TIMEOUT_SEC,
+                check=False,
+            )
+            if proc.returncode != 0:
+                return ""
+            txt_path = out_base + ".txt"
+            if not os.path.exists(txt_path):
+                return ""
+            with open(txt_path, "r", encoding="utf-8", errors="ignore") as fh:
+                return fh.read()
+        except subprocess.TimeoutExpired:
+            return ""
+        except Exception:  # noqa: BLE001
+            return ""
 
 
 def extract_candidates(text: str) -> list[str]:
-    found: list[str] = []
     upper = (text or "").upper()
-    for rx in PLATE_REGEXES:
-        for match in rx.findall(upper):
-            plate = normalize_plate(match if isinstance(match, str) else "".join(match))
-            if 6 <= len(plate) <= 12:
-                found.append(plate)
+    found = []
+    for match in re.findall(r"[A-Z]{2}\s*\d{1,2}\s*[A-Z]{1,3}\s*\d{3,4}", upper):
+        p = normalize_plate(match)
+        if 6 <= len(p) <= 12:
+            found.append(p)
     compact = normalize_plate(upper)
-    for i in range(0, max(0, len(compact) - 5)):
-        chunk = compact[i : i + 10]
-        if 6 <= len(chunk) <= 12 and re.search(r"[A-Z]", chunk) and re.search(r"\d", chunk):
-            found.append(chunk)
-    out: list[str] = []
-    seen = set()
+    # sliding windows from noisy OCR blobs
+    if len(compact) >= 6:
+        found.append(compact)
+        for n in (10, 9, 8):
+            for i in range(0, max(0, len(compact) - n + 1)):
+                found.append(compact[i : i + n])
+    out, seen = [], set()
     for p in found:
-        if p not in seen:
+        if 6 <= len(p) <= 12 and p not in seen:
             seen.add(p)
             out.append(p)
     return out
 
 
-def score_plate(plate: str) -> float:
-    if re.fullmatch(r"[A-Z]{2}\d{2}[A-Z]{2}\d{4}", plate):
-        return 0.96
-    if re.fullmatch(r"[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}", plate):
-        return 0.93
-    if re.search(r"[A-Z]{2}", plate) and re.search(r"\d{3,}", plate):
-        return 0.8
-    return 0.45
+CONFUSABLES = str.maketrans(
+    {
+        "O": "0",
+        "I": "1",
+        "L": "1",
+        "S": "5",
+        "B": "8",
+        "Z": "2",
+        "G": "6",
+    }
+)
 
 
-def correct_common_ocr_errors(plate: str) -> str:
-    p = normalize_plate(plate)
-    if len(p) < 8:
-        return p
-    chars = list(p)
-    for i in (0, 1):
-        if chars[i] == "0":
-            chars[i] = "O"
-    for i in (2, 3):
-        if i < len(chars) and chars[i] == "O":
-            chars[i] = "0"
-    return "".join(chars)
+def loose(text: str) -> str:
+    return normalize_plate(text).translate(CONFUSABLES)
+
+
+def fuzzy_eq(a: str, b: str, max_diff: int = 2) -> bool:
+    a, b = loose(a), loose(b)
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > max_diff:
+        return False
+    # pad
+    n = max(len(a), len(b))
+    a = a.ljust(n)
+    b = b.ljust(n)
+    return sum(x != y for x, y in zip(a, b)) <= max_diff
 
 
 def match_known(raw_text: str, candidates: list[str], known_plates: list[str]) -> Optional[str]:
     blob = normalize_plate(raw_text + "".join(candidates))
+    loose_blob = loose(blob)
     known = [normalize_plate(k) for k in known_plates if normalize_plate(k)]
     for k in known:
         if k and k in blob:
             return k
+        lk = loose(k)
+        if lk and lk in loose_blob:
+            return k
     for cand in candidates:
-        c = normalize_plate(cand)
         for k in known:
-            if c == k:
+            if fuzzy_eq(cand, k, 2):
                 return k
-            # allow 1-2 char mistakes
-            if len(c) == len(k):
-                diff = sum(1 for a, b in zip(c, k) if a != b)
-                if diff <= 2:
-                    return k
+    # sliding window on blob
+    for k in known:
+        n = len(k)
+        if n < 6:
+            continue
+        for i in range(0, max(0, len(blob) - n + 1)):
+            if fuzzy_eq(blob[i : i + n], k, 2):
+                return k
+        for i in range(0, max(0, len(loose_blob) - n + 1)):
+            if fuzzy_eq(loose_blob[i : i + n], k, 2):
+                return k
     return None
 
 
-def ocr_image(img: np.ndarray) -> tuple[Optional[str], float, list[str], str]:
-    configs = [
-        "--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        "--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        "--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-        "--oem 3 --psm 11 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-    ]
-    all_candidates: list[str] = []
-    raw_chunks: list[str] = []
-    for variant in preprocess_variants(img):
-        for cfg in configs:
-            text = pytesseract.image_to_string(variant, config=cfg)
-            if text and text.strip():
-                raw_chunks.append(text.strip())
-            all_candidates.extend(extract_candidates(text))
+def variants(img: np.ndarray) -> list[np.ndarray]:
+    """A few fast preprocess variants aimed at phone-LCD → webcam."""
+    h, w = img.shape[:2]
+    # Prefer center band (matches yellow guide). If already cropped, this is still fine.
+    x1, y1, x2, y2 = int(w * 0.05), int(h * 0.18), int(w * 0.95), int(h * 0.82)
+    crop = img[y1:y2, x1:x2] if x2 > x1 and y2 > y1 else img
 
-    raw_text = " ".join(raw_chunks)
-    if not all_candidates and raw_text:
-        all_candidates.extend(extract_candidates(raw_text))
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    # boost contrast for dull phone screens
+    gray = cv2.convertScaleAbs(gray, alpha=1.55, beta=18)
+    clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8)).apply(gray)
+    scale = max(1.2, 640 / max(clahe.shape[:2]))
+    big = cv2.resize(clahe, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    blur = cv2.GaussianBlur(big, (3, 3), 0)
 
-    if not all_candidates:
-        return None, 0.0, [], raw_text
+    _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adap = cv2.adaptiveThreshold(
+        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 7
+    )
+    inv = cv2.bitwise_not(otsu)
 
-    ranked = sorted({correct_common_ocr_errors(c) for c in all_candidates}, key=score_plate, reverse=True)
-    best = ranked[0]
-    return best, score_plate(best), ranked[:10], raw_text
+    # Keep only 3 variants — speed over coverage
+    return [otsu, adap, inv]
+
+
+def ocr_image(img: np.ndarray, known_plates: list[str]):
+    texts: list[str] = []
+    candidates: list[str] = []
+
+    for idx, prep in enumerate(variants(img)):
+        # One PSM per variant; stop early on known match
+        psm = 7 if idx == 0 else 6
+        text = run_tesseract(prep, psm=psm)
+        if not text.strip():
+            continue
+        texts.append(text)
+        candidates = list(dict.fromkeys(candidates + extract_candidates(text)))
+        hit = match_known(text, candidates, known_plates)
+        if hit:
+            return hit, 0.95, candidates[:8], text, "tesseract+known"
+
+    raw = " ".join(texts).strip()
+    hit = match_known(raw, candidates, known_plates)
+    if hit:
+        return hit, 0.92, candidates[:8], raw, "tesseract+known"
+    # Only accept a standalone candidate if it looks like an Indian plate
+    indian = re.compile(r"^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}$")
+    for cand in candidates:
+        if indian.match(cand):
+            return cand, 0.78, candidates[:8], raw, "tesseract"
+    # Do NOT return OCR garbage — that used to auto-allot fake guest slots
+    return None, 0.0, candidates[:8], raw, "tesseract"
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "parklane-alpr"}
+    return {"ok": True, "service": "parklane-alpr", "version": "1.4.0"}
 
 
 @app.post("/scan", response_model=ScanResponse)
 def scan(req: ScanRequest):
+    t0 = time.time()
     if req.hint:
         plate = normalize_plate(req.hint)
         return ScanResponse(
@@ -222,40 +265,40 @@ def scan(req: ScanRequest):
     if not req.imageBase64:
         return ScanResponse(message="imageBase64 is required", confidence=0.0)
 
-    try:
-        img = decode_image(req.imageBase64)
-    except Exception as exc:  # noqa: BLE001
-        return ScanResponse(message=f"Invalid image: {exc}", confidence=0.0)
-
-    plate, confidence, candidates, raw_text = ocr_image(img)
-
-    known_hit = match_known(raw_text, candidates, req.knownPlates or [])
-    if known_hit:
+    # single-flight: never pile up tesseract workers
+    if not OCR_LOCK.acquire(blocking=False):
         return ScanResponse(
-            plate=known_hit,
-            confidence=max(confidence, 0.92),
-            candidates=candidates,
-            rawText=raw_text[:500],
-            engine="tesseract+known",
-            message=f"Matched registered plate {known_hit}",
-        )
-
-    if not plate:
-        return ScanResponse(
-            message="No number plate detected. Hold plate steady inside the yellow box.",
+            message="Scanner busy — hold plate steady…",
             confidence=0.0,
-            candidates=[],
-            rawText=raw_text[:500],
+            engine="busy",
         )
 
-    return ScanResponse(
-        plate=correct_common_ocr_errors(plate),
-        confidence=confidence,
-        candidates=candidates,
-        rawText=raw_text[:500],
-        engine="tesseract",
-        message="Plate detected",
-    )
+    try:
+        try:
+            img = decode_image(req.imageBase64)
+        except Exception as exc:  # noqa: BLE001
+            return ScanResponse(message=f"Invalid image: {exc}", confidence=0.0)
+
+        plate, confidence, candidates, raw_text, engine = ocr_image(img, req.knownPlates or [])
+        elapsed = round(time.time() - t0, 2)
+        if not plate:
+            return ScanResponse(
+                message=f"No plate yet ({elapsed}s) — fill yellow box, max phone brightness, hold 2s",
+                confidence=0.0,
+                candidates=[],
+                rawText=(raw_text or "")[:300],
+                engine=engine,
+            )
+        return ScanResponse(
+            plate=plate,
+            confidence=confidence,
+            candidates=candidates,
+            rawText=(raw_text or "")[:300],
+            engine=engine,
+            message=(f"Matched {plate} in {elapsed}s" if "known" in engine else f"Plate detected in {elapsed}s"),
+        )
+    finally:
+        OCR_LOCK.release()
 
 
 @app.post("/demo-plate-image")

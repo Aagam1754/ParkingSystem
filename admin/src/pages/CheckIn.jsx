@@ -6,7 +6,6 @@ import { useSocket } from '../hooks/useSocket';
 
 export default function CheckIn() {
   const canvasRef = useRef(null);
-  const fileRef = useRef(null);
   const scanningRef = useRef(false);
   const cooldownPlateRef = useRef('');
   const cooldownUntilRef = useRef(0);
@@ -51,7 +50,7 @@ export default function CheckIn() {
     let cancelled = false;
     (async () => {
       await startCamera();
-      if (!cancelled) setStatus('Auto-scan ON — fill the yellow box with the plate');
+      if (!cancelled) setStatus('Waiting for plate in yellow box…');
     })();
     return () => {
       cancelled = true;
@@ -62,63 +61,32 @@ export default function CheckIn() {
     if (cameraError) setError(cameraError);
   }, [cameraError]);
 
-  /** Capture full frame + tight center crop (yellow guide) for better OCR. */
+  /** Capture yellow-guide crop (preferred) + full frame. */
   function captureFrames() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.videoWidth) return [];
 
-    const frames = [];
     const drawAndEncode = (sx, sy, sw, sh, outW) => {
-      const scale = outW / sw;
-      canvas.width = Math.round(sw * scale);
-      canvas.height = Math.round(sh * scale);
+      const scale = Math.min(1, outW / sw);
+      canvas.width = Math.max(1, Math.round(sw * scale));
+      canvas.height = Math.max(1, Math.round(sh * scale));
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', 0.92);
+      return canvas.toDataURL('image/jpeg', 0.85);
     };
 
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    // full frame
-    frames.push(drawAndEncode(0, 0, vw, vh, 1100));
-    // yellow guide region (~center band)
+    // Must match .webcam-guide CSS: left/right 10%, top 30%, bottom 28%
     const gx = Math.floor(vw * 0.1);
-    const gy = Math.floor(vh * 0.32);
+    const gy = Math.floor(vh * 0.3);
     const gw = Math.floor(vw * 0.8);
-    const gh = Math.floor(vh * 0.4);
-    frames.push(drawAndEncode(gx, gy, gw, gh, 1000));
-    // tighter plate band
-    const tx = Math.floor(vw * 0.18);
-    const ty = Math.floor(vh * 0.38);
-    const tw = Math.floor(vw * 0.64);
-    const th = Math.floor(vh * 0.28);
-    frames.push(drawAndEncode(tx, ty, tw, th, 900));
-    return frames;
-  }
-
-  async function tryScanFrames(frames) {
-    let best = null;
-    for (const imageBase64 of frames) {
-      try {
-        const data = await AlprAPI.scan({ imageBase64 });
-        if (data?.plate) {
-          if (
-            !best ||
-            (data.matchedRegistered && !best.matchedRegistered) ||
-            (data.confidence || 0) > (best.confidence || 0)
-          ) {
-            best = data;
-          }
-          if (data.matchedRegistered || (data.confidence || 0) >= 0.85) break;
-        } else if (!best) {
-          best = data;
-        }
-      } catch (err) {
-        setOcrHint(err.message);
-      }
-    }
-    return best;
+    const gh = Math.floor(vh * 0.42);
+    return [
+      drawAndEncode(gx, gy, gw, gh, 900),
+      drawAndEncode(0, 0, vw, vh, 960),
+    ];
   }
 
   async function autoCycle() {
@@ -131,44 +99,50 @@ export default function CheckIn() {
         return;
       }
 
-      setStatus('Scanning plate…');
-      const scanned = await tryScanFrames(frames);
+      setStatus('Scanning plate from camera…');
+      let scanned = await AlprAPI.scan({ imageBase64: frames[0] });
+      if (!scanned?.plate && scanned?.engine !== 'busy' && frames[1]) {
+        scanned = await AlprAPI.scan({ imageBase64: frames[1] });
+      }
+      if (scanned?.engine === 'busy') {
+        setStatus('Scanner catching up — keep plate in the yellow box');
+        return;
+      }
+
       if (scanned?.plate) {
         setDetectedPlate(scanned.plate);
         setConfidence(scanned.confidence || 0);
-        setOcrHint(scanned.message || scanned.rawText?.slice(0, 80) || '');
+        setOcrHint(scanned.message || '');
         setError('');
 
         const plate = scanned.plate;
-        if (
-          plate === cooldownPlateRef.current &&
-          Date.now() < cooldownUntilRef.current
-        ) {
-          setStatus(`Already checked in ${plate}`);
+        if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
+          setStatus(`Already handled ${plate} — show another plate or check out first`);
           return;
         }
 
-        setStatus(`Plate ${plate} — checking in…`);
-        // Direct check-in with best crop frame + plate hint
+        setStatus(`Plate ${plate} — allocating slot…`);
+        // Camera image required — backend rejects plate-only check-in for WEBCAM
         const data = await AlprAPI.checkIn({
-          plate,
-          imageBase64: frames[1] || frames[0],
+          imageBase64: frames[0],
           source: 'WEBCAM',
         });
         setResult(data);
         if (data.allotted) onCheckinSuccess(data);
         else setStatus(data.reason || 'Not allotted');
       } else {
-        setStatus(scanned?.message || 'Point plate at camera — still looking…');
-        setOcrHint(scanned?.rawText?.slice(0, 100) || 'No plate text yet');
+        setStatus('No plate on camera yet — slot waits for a successful scan');
+        setOcrHint(scanned?.rawText?.slice(0, 80) || scanned?.message || '');
       }
     } catch (err) {
       if (/already checked in/i.test(err.message)) {
         setStatus(err.message);
+        setError(err.message);
         cooldownPlateRef.current = detectedPlate;
         cooldownUntilRef.current = Date.now() + 15000;
-      } else if (/Could not read number plate/i.test(err.message)) {
-        setStatus('Hold plate steady & closer in the yellow box');
+      } else if (/timed out|Could not read number plate/i.test(err.message)) {
+        setStatus('Could not read plate — hold steadier in the yellow box');
+        setOcrHint(err.message);
       } else {
         setError(err.message);
       }
@@ -179,11 +153,10 @@ export default function CheckIn() {
 
   useEffect(() => {
     if (!autoScan || !cameraOn) return undefined;
-    // Kick immediately, then every 1.1s
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 1100);
+    }, 2000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);
@@ -193,42 +166,12 @@ export default function CheckIn() {
     await autoCycle();
   }
 
-  async function onUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const imageBase64 = String(reader.result || '');
-      setStatus('Scanning uploaded plate image…');
-      setError('');
-      try {
-        const scanned = await AlprAPI.scan({ imageBase64 });
-        if (scanned.plate) {
-          setDetectedPlate(scanned.plate);
-          setConfidence(scanned.confidence || 0);
-        }
-        const data = await AlprAPI.checkIn({
-          plate: scanned.plate || undefined,
-          imageBase64,
-          source: 'WEBCAM',
-        });
-        setResult(data);
-        if (data.allotted) onCheckinSuccess(data);
-        else setError(data.reason || 'Not allotted');
-      } catch (err) {
-        setError(err.message);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  }
-
   return (
     <div className="stack">
       <div className="topbar">
         <div>
           <h2>Check-in gate</h2>
-          <p>Auto webcam scan every second → company from DB → allot slot</p>
+          <p>Slot is allotted only after the camera reads a number plate. No plate scan → no slot.</p>
         </div>
         <span className="live-pill">
           <i />
@@ -252,7 +195,7 @@ export default function CheckIn() {
                     setCameraError('');
                     setError('');
                     await startCamera();
-                    setStatus('Auto-scan ON');
+                    setStatus('Waiting for plate in yellow box…');
                   }
                 }}
               >
@@ -273,12 +216,8 @@ export default function CheckIn() {
           </p>
           <div className="actions" style={{ marginTop: 10 }}>
             <button className="btn btn-secondary" type="button" onClick={manualCheckIn}>
-              Scan & check-in now
+              Scan camera now
             </button>
-            <button className="btn btn-secondary" type="button" onClick={() => fileRef.current?.click()}>
-              Upload plate photo
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" hidden onChange={onUpload} />
           </div>
         </section>
 
@@ -288,17 +227,11 @@ export default function CheckIn() {
               <h3>Live scan result</h3>
             </div>
             <div className={`plate-board ${detectedPlate ? 'has-plate' : ''}`}>
-              <div className="muted">Number plate</div>
-              <div className="plate-huge">{detectedPlate || 'SCANNING…'}</div>
+              <div className="muted">Number plate (from camera)</div>
+              <div className="plate-huge">{detectedPlate || 'WAITING…'}</div>
               <div className="muted">Confidence {Math.round((confidence || 0) * 100)}%</div>
               {ocrHint ? <div className="muted" style={{ marginTop: 8 }}>OCR: {ocrHint}</div> : null}
             </div>
-            <p className="muted" style={{ marginTop: 12 }}>
-              York IE demo plates: <b>GJ01YK1001</b>, <b>GJ01YK2044</b>
-            </p>
-            <p className="muted">
-              Use photo from <b>docs/sample-plates/car-photo-GJ01YK1001.png</b> or Upload button if webcam OCR struggles.
-            </p>
           </section>
 
           {result?.allotted ? (
@@ -334,6 +267,7 @@ export default function CheckIn() {
         open={popup.open}
         title={popup.title}
         lines={popup.lines}
+        autoCloseMs={1000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

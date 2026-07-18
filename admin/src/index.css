@@ -536,13 +536,27 @@ a {
 .webcam-guide {
   pointer-events: none;
   position: absolute;
-  left: 12%;
-  right: 12%;
-  top: 35%;
+  left: 10%;
+  right: 10%;
+  top: 30%;
   bottom: 28%;
-  border: 2px dashed rgba(214, 255, 75, 0.85);
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 999px rgba(0, 0, 0, 0.08);
+  border: 3px solid rgba(214, 255, 75, 0.95);
+  border-radius: 10px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
+}
+
+.webcam-guide::after {
+  content: 'Align number plate here';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #d6ff4b;
+  text-shadow: 0 1px 2px #000;
 }
 
 .company-swatch {
@@ -617,6 +631,20 @@ a {
 
 .popup-card .btn {
   margin-top: 16px;
+}
+
+.popup-card.checkout {
+  border-color: rgba(97, 218, 251, 0.4);
+}
+
+.popup-card.checkout .popup-glow {
+  background: radial-gradient(circle, rgba(97, 218, 251, 0.35), transparent 70%);
+}
+
+.popup-auto-hint {
+  margin-top: 14px !important;
+  font-size: 0.85rem;
+  opacity: 0.75;
 }
 
 .popup-glow {

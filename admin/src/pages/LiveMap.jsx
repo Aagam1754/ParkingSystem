@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BasesAPI, DashboardAPI, SessionsAPI } from '../api';
+import { BasesAPI, DashboardAPI } from '../api';
 import { useSocket } from '../hooks/useSocket';
 
 function SlotCell({ slot, color }) {
@@ -28,8 +28,7 @@ export default function LiveMap() {
   const [selectedBaseId, setSelectedBaseId] = useState(null);
   const [occupancy, setOccupancy] = useState(null);
   const [overview, setOverview] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message] = useState('');
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
@@ -67,23 +66,6 @@ export default function LiveMap() {
     'checkout.success': () => refresh().catch(() => {}),
   });
 
-  async function runRandom() {
-    setBusy(true);
-    setError('');
-    try {
-      const result = await SessionsAPI.randomEntry(false);
-      if (result.allotted) {
-        setMessage(`${result.plateNormalized} → ${result.slot.code} @ ${result.base.name}`);
-        setSelectedBaseId(result.base.id);
-      } else setError(result.reason || 'Not allotted');
-      await refresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const totals = overview?.totals || {};
 
   return (
@@ -104,9 +86,6 @@ export default function LiveMap() {
           </span>
           <button className="btn btn-secondary" type="button" onClick={() => refresh()}>
             Refresh
-          </button>
-          <button className="btn btn-primary" type="button" disabled={busy} onClick={runRandom}>
-            Simulate entry
           </button>
         </div>
       </div>
