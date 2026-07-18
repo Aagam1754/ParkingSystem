@@ -4,6 +4,8 @@ import { buildNavigationPlan, formatNavigationReply } from './navigation.js';
 const SYSTEM_PROMPT = `You are ParkLane Smart Parking Assistant for the Eastface building in Ahmedabad.
 Answer briefly and helpfully using ONLY the live parking CONTEXT JSON provided.
 Be specific with basement codes (B1/B2/B3), free slot counts, EV chargers, INR cost estimates, and lobby walking directions when asked to navigate.
+Allotment rules (must match gate): ACTIVE company plates → their company pool FCFS; company full → GENERAL overflow; unknown → guest GENERAL; never another company's bay; IN_SERVICE/BLOCKED rejected at gate.
+Navigate answers are recommendations only — the gate check-in runs the real allotment.
 If data is missing, say so. Do not invent basements, companies, or prices.
 Prefer short paragraphs and bullet points. Use Indian English casually.`;
 
@@ -32,8 +34,15 @@ function isNavigateIntent(message) {
   ]);
 }
 
+function resolveNavIdentity(message, opts = {}) {
+  const fromMsg = extractCompanyCode(message);
+  const companyCode = fromMsg || opts.companyCode || null;
+  const asGuest = companyCode ? false : opts.asGuest !== false;
+  return { companyCode, asGuest };
+}
+
 /** Deterministic answers when no LLM API key is configured — still uses live data. */
-export async function answerFromContext(message, context) {
+export async function answerFromContext(message, context, opts = {}) {
   const hours = extractHours(message) ?? 3;
   const costGuest = estimateParkingCost(context, {
     hours,
@@ -45,16 +54,23 @@ export async function answerFromContext(message, context) {
     sessionType: 'COMPANY',
     vehicleType: 'CAR',
   });
+  const costGeneral = estimateParkingCost(context, {
+    hours,
+    sessionType: 'GENERAL',
+    vehicleType: 'CAR',
+  });
 
   if (isNavigateIntent(message)) {
     const preferEv = looksLike(message, [/ev/i, /charg/i, /electric/i]);
     const vehicleType = looksLike(message, [/bike|scooter|two.?wheeler/i]) ? 'BIKE' : 'CAR';
-    const companyCode = extractCompanyCode(message);
+    const { companyCode, asGuest } = resolveNavIdentity(message, opts);
     const plan = await buildNavigationPlan({
       vehicleType,
       companyCode,
       preferEv,
-      asGuest: !companyCode,
+      asGuest,
+      lat: opts.lat,
+      lng: opts.lng,
     });
     return {
       reply: formatNavigationReply(plan),
@@ -64,7 +80,14 @@ export async function answerFromContext(message, context) {
 
   if (looksLike(message, [/where.*(park|should)/i, /which.*(basement|floor|level).*park/i, 'where should i park'])) {
     const rec = context.recommendations.guestOrVisitor;
-    const lightest = [...context.floors].sort((a, b) => a.occupancyPct - b.occupancyPct)[0];
+    const memberCode = opts.companyCode ? String(opts.companyCode).toUpperCase() : null;
+    const myPools = memberCode
+      ? context.companyPools.filter((p) => p.companyCode === memberCode)
+      : [];
+    const myFree = myPools.reduce((n, p) => n + Number(p.free || 0), 0);
+    const myPoolLines = myPools
+      .map((p) => `• ${p.basement}: ${p.free} free / ${p.total} (${p.occupancyPct}% full)`)
+      .join('\n');
     const companyHint = context.companyPools
       .filter((p) => p.free > 0)
       .sort((a, b) => b.free - a.free)
@@ -80,14 +103,16 @@ export async function answerFromContext(message, context) {
       reply: [
         `Right now parking is **${context.summary.crowd}** overall (${context.summary.occupancyPct}% full, ${context.summary.freeSlots} free of ${context.summary.totalSlots}).`,
         tipLine,
-        rec
-          ? `**Visitors / guests:** head to **${rec.basement}** (${rec.name}) — ${rec.carFree} car + ${rec.bikeFree} bike free. ${rec.note}`
-          : 'No general basement found in live data.',
-        lightest
-          ? `**Lightest basement overall:** ${lightest.code} at ${lightest.occupancyPct}% occupied (${lightest.free} free).`
+        memberCode
+          ? myFree > 0
+            ? `**Your company (${memberCode}) pool:** ${myFree} free — gate allotment uses FCFS here first.\n${myPoolLines}`
+            : `**Your company (${memberCode}) pool is full** — gate overflow goes to GENERAL (B1), same as allotment.`
           : null,
-        companyHint ? `**Company pools with space:**\n${companyHint}` : null,
-        'Say **Navigate me** for a specific bay + walking directions from the lobby.',
+        rec
+          ? `**Visitors / guests / overflow:** **${rec.basement}** (${rec.name}) — ${rec.carFree} car + ${rec.bikeFree} bike free. ${rec.note}`
+          : 'No general basement found in live data.',
+        !memberCode && companyHint ? `**Company pools with space:**\n${companyHint}` : null,
+        'Say **Navigate me** for a specific bay + walking directions (recommendation only — gate still allots).',
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -146,6 +171,9 @@ export async function answerFromContext(message, context) {
           : null,
         costCompany.ok
           ? `• Company member car: **₹${costCompany.estimatedInr}** (₹${costCompany.hourlyInr}/hr)`
+          : null,
+        costGeneral.ok
+          ? `• General overflow car: **₹${costGeneral.estimatedInr}** (₹${costGeneral.hourlyInr}/hr)`
           : null,
         rateLines ? `**Tariff card:**\n${rateLines}` : null,
       ]
@@ -216,16 +244,33 @@ async function callOpenAI({ message, context, history }) {
   return { reply, model, provider: 'openai' };
 }
 
-export async function generateAssistantReply({ message, context, history = [] }) {
+export async function generateAssistantReply({
+  message,
+  context,
+  history = [],
+  companyCode = null,
+  asGuest = null,
+  lat = null,
+  lng = null,
+} = {}) {
+  const memberOpts = {
+    companyCode: companyCode || null,
+    asGuest: asGuest == null ? undefined : Boolean(asGuest),
+    lat,
+    lng,
+  };
+
   if (isNavigateIntent(message)) {
     const preferEv = looksLike(message, [/ev/i, /charg/i, /electric/i]);
-    const vehicleType = looksLike(message, [/bike|scooter|two.?wheeler/i]) ? 'BIKE' : 'CAR';
-    const companyCode = extractCompanyCode(message);
+    const vehicleType = looksLike(message, [/bike|scooter|two.?heeler/i]) ? 'BIKE' : 'CAR';
+    const { companyCode: code, asGuest: guest } = resolveNavIdentity(message, memberOpts);
     const plan = await buildNavigationPlan({
       vehicleType,
-      companyCode,
+      companyCode: code,
       preferEv,
-      asGuest: !companyCode,
+      asGuest: guest,
+      lat,
+      lng,
     });
     return {
       reply: formatNavigationReply(plan),
@@ -242,7 +287,7 @@ export async function generateAssistantReply({ message, context, history = [] })
     }
   } catch (err) {
     console.warn('[assistant] LLM failed, using live-data fallback:', err.message);
-    const fallback = await answerFromContext(message, context);
+    const fallback = await answerFromContext(message, context, memberOpts);
     return {
       reply: `${fallback.reply}\n\n_(LLM unavailable — answered from live parking data.)_`,
       mode: 'fallback',
@@ -252,7 +297,7 @@ export async function generateAssistantReply({ message, context, history = [] })
     };
   }
 
-  const ruled = await answerFromContext(message, context);
+  const ruled = await answerFromContext(message, context, memberOpts);
   return {
     reply: ruled.reply,
     mode: 'rules',

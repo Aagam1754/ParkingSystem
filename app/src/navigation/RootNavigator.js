@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import { colors } from '../theme';
 import LoginScreen from '../screens/LoginScreen';
 import CurrentSlotScreen from '../screens/CurrentSlotScreen';
+import AssistantScreen from '../screens/AssistantScreen';
 import VehiclesScreen from '../screens/VehiclesScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -15,6 +16,7 @@ const Tab = createBottomTabNavigator();
 function TabIcon({ label, focused }) {
   const map = {
     Slot: '◆',
+    Assist: '✦',
     Vehicles: '▣',
     History: '☰',
     Profile: '○',
@@ -49,6 +51,11 @@ function MainTabs() {
         name="Slot"
         component={CurrentSlotScreen}
         options={{ title: 'Current slot', tabBarLabel: 'Slot' }}
+      />
+      <Tab.Screen
+        name="Assist"
+        component={AssistantScreen}
+        options={{ title: 'Parking assistant', tabBarLabel: 'Assist' }}
       />
       <Tab.Screen
         name="Vehicles"

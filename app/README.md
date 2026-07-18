@@ -10,6 +10,8 @@ Members do **not** run ALPR / gate cameras — they see allotment results and ma
 |---|---|
 | Login | JWT for `CORPORATE_MEMBER` only |
 | Current slot | Open session after gate check-in; auto-refresh every 4s |
+| Assist | Same `/api/assistant` as admin — free-bay navigate + ElevenLabs slot voice, GPS proximity, live tips |
+| (background) | Local notification when gate allotment confirms you parked in a slot |
 | My vehicles | ACTIVE ↔ IN_SERVICE; claim / retire TEMP_SERVICE plates |
 | History | Sessions with COMPANY / GENERAL / GUEST pool types |
 | Profile | Building, company, employee code |

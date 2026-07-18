@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { buildParkingContext, estimateParkingCost } from '../services/parkingContext.js';
 import { generateAssistantReply } from '../services/assistantLlm.js';
-import { buildNavigationPlan } from '../services/navigation.js';
+import {
+  buildNavigationPlan,
+  buildSpokenNavigationScript,
+} from '../services/navigation.js';
 import { getAssistantTips } from '../services/assistantTips.js';
 import {
   getElevenLabsConfig,
@@ -23,8 +26,20 @@ router.post('/speak', requireAuth, async (req, res) => {
         error: 'ElevenLabs TTS is not configured. Add ELEVENLABS_API_KEY to backend/.env',
       });
     }
-    const text = String(req.body?.text || '').trim();
-    if (!text) return res.status(400).json({ error: 'text is required' });
+
+    // Prefer navigation spokenScript so TTS only guides to the free bay
+    let text = '';
+    if (req.body?.navigation?.ok || req.body?.navigation?.spokenScript) {
+      text =
+        req.body.navigation.spokenScript ||
+        buildSpokenNavigationScript(req.body.navigation, req.body.navigation.location);
+    } else if (req.body?.slotOnly && req.body?.navigation) {
+      text = buildSpokenNavigationScript(req.body.navigation, req.body.navigation.location);
+    } else {
+      text = String(req.body?.text || '').trim();
+    }
+
+    if (!text) return res.status(400).json({ error: 'text or navigation is required' });
     if (text.length > 4000) {
       return res.status(400).json({ error: 'text too long for speech (max 4000 chars)' });
     }
@@ -82,11 +97,15 @@ router.post('/navigate', requireAuth, async (req, res) => {
     const companyCode = req.body?.companyCode || null;
     const preferEv = Boolean(req.body?.preferEv);
     const asGuest = req.body?.asGuest !== false && !companyCode;
+    const lat = req.body?.lat ?? req.body?.latitude ?? null;
+    const lng = req.body?.lng ?? req.body?.longitude ?? null;
     const plan = await buildNavigationPlan({
       vehicleType,
       companyCode,
       preferEv,
       asGuest: companyCode ? false : asGuest,
+      lat,
+      lng,
     });
     if (!plan.ok) return res.status(409).json({ error: plan.reason, ...plan });
     res.json(plan);
@@ -105,11 +124,26 @@ router.post('/chat', requireAuth, async (req, res) => {
     }
 
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
+    const companyCode = req.body?.companyCode || null;
+    const asGuest =
+      req.body?.asGuest === undefined || req.body?.asGuest === null
+        ? null
+        : Boolean(req.body.asGuest);
+    const lat = req.body?.lat ?? req.body?.latitude ?? null;
+    const lng = req.body?.lng ?? req.body?.longitude ?? null;
     const context = await buildParkingContext();
     const tips = await getAssistantTips();
     context.liveTips = tips.tips;
 
-    const result = await generateAssistantReply({ message, context, history });
+    const result = await generateAssistantReply({
+      message,
+      context,
+      history,
+      companyCode,
+      asGuest,
+      lat,
+      lng,
+    });
 
     res.json({
       reply: result.reply,

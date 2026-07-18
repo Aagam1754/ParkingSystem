@@ -1,9 +1,12 @@
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/auth/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import ParkAlertBanner from './src/components/ParkAlertBanner';
+import { startParkWatch } from './src/services/parkWatch';
 import { colors } from './src/theme';
 
 const navTheme = {
@@ -18,6 +21,17 @@ const navTheme = {
   },
 };
 
+function ParkWatchBootstrap() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) return undefined;
+    return startParkWatch({ intervalMs: 5000 });
+  }, [user]);
+
+  return null;
+}
+
 function Bootstrap() {
   const { loading } = useAuth();
 
@@ -31,7 +45,9 @@ function Bootstrap() {
 
   return (
     <NavigationContainer theme={navTheme}>
+      <ParkWatchBootstrap />
       <RootNavigator />
+      <ParkAlertBanner />
       <StatusBar style="light" />
     </NavigationContainer>
   );

@@ -37,3 +37,25 @@ export const MeAPI = {
     return api(`/api/me/sessions${q ? `?${q}` : ''}`);
   },
 };
+
+/** Same /api/assistant endpoints as the admin panel — member app passes companyCode + asGuest:false. */
+export const AssistantAPI = {
+  context: () => api('/api/assistant/context'),
+  tips: () => api('/api/assistant/tips'),
+  voiceStatus: () => api('/api/assistant/voice'),
+  chat: (payload) =>
+    api('/api/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  navigate: (payload = {}) =>
+    api('/api/assistant/navigate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  estimate: (payload) =>
+    api('/api/assistant/estimate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};
