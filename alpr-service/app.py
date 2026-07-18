@@ -235,9 +235,13 @@ def ocr_image(img: np.ndarray, known_plates: list[str]):
     hit = match_known(raw, candidates, known_plates)
     if hit:
         return hit, 0.92, candidates[:8], raw, "tesseract+known"
-    if candidates:
-        return candidates[0], 0.7, candidates[:8], raw, "tesseract"
-    return None, 0.0, [], raw, "tesseract"
+    # Only accept a standalone candidate if it looks like an Indian plate
+    indian = re.compile(r"^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}$")
+    for cand in candidates:
+        if indian.match(cand):
+            return cand, 0.78, candidates[:8], raw, "tesseract"
+    # Do NOT return OCR garbage — that used to auto-allot fake guest slots
+    return None, 0.0, candidates[:8], raw, "tesseract"
 
 
 @app.get("/health")

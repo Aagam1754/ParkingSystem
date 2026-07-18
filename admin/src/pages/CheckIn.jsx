@@ -6,7 +6,6 @@ import { useSocket } from '../hooks/useSocket';
 
 export default function CheckIn() {
   const canvasRef = useRef(null);
-  const fileRef = useRef(null);
   const scanningRef = useRef(false);
   const cooldownPlateRef = useRef('');
   const cooldownUntilRef = useRef(0);
@@ -51,7 +50,7 @@ export default function CheckIn() {
     let cancelled = false;
     (async () => {
       await startCamera();
-      if (!cancelled) setStatus('Auto-scan ON — fill the yellow box with the plate');
+      if (!cancelled) setStatus('Waiting for plate in yellow box…');
     })();
     return () => {
       cancelled = true;
@@ -85,7 +84,7 @@ export default function CheckIn() {
     const gw = Math.floor(vw * 0.8);
     const gh = Math.floor(vh * 0.42);
     return [
-      drawAndEncode(gx, gy, gw, gh, 900), // guide crop first
+      drawAndEncode(gx, gy, gw, gh, 900),
       drawAndEncode(0, 0, vw, vh, 960),
     ];
   }
@@ -100,8 +99,7 @@ export default function CheckIn() {
         return;
       }
 
-      setStatus('Scanning plate…');
-      // One OCR call on yellow-guide crop only (fast). Skip fallback if scanner busy.
+      setStatus('Scanning plate from camera…');
       let scanned = await AlprAPI.scan({ imageBase64: frames[0] });
       if (!scanned?.plate && scanned?.engine !== 'busy' && frames[1]) {
         scanned = await AlprAPI.scan({ imageBase64: frames[1] });
@@ -119,13 +117,13 @@ export default function CheckIn() {
 
         const plate = scanned.plate;
         if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
-          setStatus(`Already checked in ${plate}`);
+          setStatus(`Already handled ${plate} — show another plate or check out first`);
           return;
         }
 
-        setStatus(`Plate ${plate} — checking in…`);
+        setStatus(`Plate ${plate} — allocating slot…`);
+        // Camera image required — backend rejects plate-only check-in for WEBCAM
         const data = await AlprAPI.checkIn({
-          plate,
           imageBase64: frames[0],
           source: 'WEBCAM',
         });
@@ -133,16 +131,17 @@ export default function CheckIn() {
         if (data.allotted) onCheckinSuccess(data);
         else setStatus(data.reason || 'Not allotted');
       } else {
-        setStatus('No plate detected yet — slot cannot allot without a plate. Use demo buttons →');
+        setStatus('No plate on camera yet — slot waits for a successful scan');
         setOcrHint(scanned?.rawText?.slice(0, 80) || scanned?.message || '');
       }
     } catch (err) {
       if (/already checked in/i.test(err.message)) {
         setStatus(err.message);
+        setError(err.message);
         cooldownPlateRef.current = detectedPlate;
         cooldownUntilRef.current = Date.now() + 15000;
       } else if (/timed out|Could not read number plate/i.test(err.message)) {
-        setStatus('Scan weak — move plate closer or use Upload plate photo');
+        setStatus('Could not read plate — hold steadier in the yellow box');
         setOcrHint(err.message);
       } else {
         setError(err.message);
@@ -157,7 +156,7 @@ export default function CheckIn() {
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 2000); // OCR is fast now; still wait so scans do not stack
+    }, 2000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);
@@ -167,42 +166,12 @@ export default function CheckIn() {
     await autoCycle();
   }
 
-  async function onUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const imageBase64 = String(reader.result || '');
-      setStatus('Scanning uploaded plate image…');
-      setError('');
-      try {
-        const scanned = await AlprAPI.scan({ imageBase64 });
-        if (scanned.plate) {
-          setDetectedPlate(scanned.plate);
-          setConfidence(scanned.confidence || 0);
-        }
-        const data = await AlprAPI.checkIn({
-          plate: scanned.plate || undefined,
-          imageBase64,
-          source: 'WEBCAM',
-        });
-        setResult(data);
-        if (data.allotted) onCheckinSuccess(data);
-        else setError(data.reason || 'Not allotted');
-      } catch (err) {
-        setError(err.message);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  }
-
   return (
     <div className="stack">
       <div className="topbar">
         <div>
           <h2>Check-in gate</h2>
-          <p>Hold the plate inside the yellow box (max phone brightness). Demo buttons work if webcam OCR is weak.</p>
+          <p>Slot is allotted only after the camera reads a number plate. No plate scan → no slot.</p>
         </div>
         <span className="live-pill">
           <i />
@@ -226,7 +195,7 @@ export default function CheckIn() {
                     setCameraError('');
                     setError('');
                     await startCamera();
-                    setStatus('Auto-scan ON');
+                    setStatus('Waiting for plate in yellow box…');
                   }
                 }}
               >
@@ -247,12 +216,8 @@ export default function CheckIn() {
           </p>
           <div className="actions" style={{ marginTop: 10 }}>
             <button className="btn btn-secondary" type="button" onClick={manualCheckIn}>
-              Scan & check-in now
+              Scan camera now
             </button>
-            <button className="btn btn-secondary" type="button" onClick={() => fileRef.current?.click()}>
-              Upload plate photo
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" hidden onChange={onUpload} />
           </div>
         </section>
 
@@ -262,37 +227,10 @@ export default function CheckIn() {
               <h3>Live scan result</h3>
             </div>
             <div className={`plate-board ${detectedPlate ? 'has-plate' : ''}`}>
-              <div className="muted">Number plate</div>
-              <div className="plate-huge">{detectedPlate || 'SCANNING…'}</div>
+              <div className="muted">Number plate (from camera)</div>
+              <div className="plate-huge">{detectedPlate || 'WAITING…'}</div>
               <div className="muted">Confidence {Math.round((confidence || 0) * 100)}%</div>
               {ocrHint ? <div className="muted" style={{ marginTop: 8 }}>OCR: {ocrHint}</div> : null}
-            </div>
-            <p className="muted" style={{ marginTop: 12 }}>
-              If webcam is slow/glare, use one-click demo check-in:
-            </p>
-            <div className="actions">
-              {['GJ01YK1001', 'GJ01YK2044', 'MH12AB1234'].map((p) => (
-                <button
-                  key={p}
-                  className="btn btn-secondary"
-                  type="button"
-                  onClick={async () => {
-                    setStatus(`Checking in ${p}…`);
-                    setError('');
-                    try {
-                      const data = await AlprAPI.checkIn({ plate: p, source: 'WEBCAM' });
-                      setDetectedPlate(p);
-                      setResult(data);
-                      if (data.allotted) onCheckinSuccess(data);
-                      else setError(data.reason || 'Not allotted');
-                    } catch (err) {
-                      setError(err.message);
-                    }
-                  }}
-                >
-                  {p}
-                </button>
-              ))}
             </div>
           </section>
 
