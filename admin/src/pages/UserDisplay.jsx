@@ -221,6 +221,7 @@ export default function UserDisplay() {
         open={popup.open}
         title={popup.title}
         lines={popup.lines}
+        autoCloseMs={5000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

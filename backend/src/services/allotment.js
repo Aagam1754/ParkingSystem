@@ -439,6 +439,12 @@ export async function processExitScan(conn, payload) {
     );
   }
 
+  let slotCode = null;
+  if (open.slot_id) {
+    const [slotRows] = await conn.query(`SELECT code FROM slots WHERE id = ? LIMIT 1`, [open.slot_id]);
+    slotCode = slotRows[0]?.code || null;
+  }
+
   await conn.query(
     `UPDATE parking_sessions
      SET status = 'CLOSED', is_open = NULL, exit_event_id = ?, exited_at = NOW(), closed_at = NOW()
@@ -447,5 +453,10 @@ export async function processExitScan(conn, payload) {
   );
 
   const [sessions] = await conn.query(`SELECT * FROM parking_sessions WHERE id = ?`, [open.id]);
-  return { closed: true, session: sessions[0] };
+  return {
+    closed: true,
+    plateNormalized: plateNormalized,
+    slot: slotCode ? { code: slotCode, id: open.slot_id } : null,
+    session: sessions[0],
+  };
 }

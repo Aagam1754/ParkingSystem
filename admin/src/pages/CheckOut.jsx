@@ -19,22 +19,24 @@ export default function CheckOut() {
   const [status, setStatus] = useState('Check-out camera ready');
   const [popup, setPopup] = useState({ open: false, title: '', lines: [] });
 
-  const onCheckoutSuccess = useCallback(
-    (payload) => {
-      if (!payload?.closed) return;
-      setResult(payload);
-      setPopup({
-        open: true,
-        title: 'Check-out success',
-        lines: [
-          `Plate ${payload.session?.plate_normalized || detectedPlate}`,
-          'Slot freed · session closed',
-          'Thank you — drive safe',
-        ],
-      });
-    },
-    [detectedPlate]
-  );
+  const onCheckoutSuccess = useCallback((payload) => {
+    if (!payload?.closed && !payload?.session) return;
+    const plate = payload.session?.plate_normalized || payload.plateNormalized || '';
+    const slotCode = payload.session?.slot_code || payload.slot?.code;
+    setResult(payload);
+    setDetectedPlate(plate);
+    setStatus(`Checked out ${plate}`);
+    setPopup({
+      open: true,
+      title: 'Check-out successful',
+      lines: [
+        plate ? `Plate ${plate}` : '',
+        slotCode ? `Slot ${slotCode} freed` : 'Parking slot freed',
+        'Session closed',
+        'Thank you — drive safe',
+      ].filter(Boolean),
+    });
+  }, []);
 
   const { live } = useSocket({
     'checkout.success': onCheckoutSuccess,
@@ -225,6 +227,8 @@ export default function CheckOut() {
         open={popup.open}
         title={popup.title}
         lines={popup.lines}
+        tone="checkout"
+        autoCloseMs={4000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

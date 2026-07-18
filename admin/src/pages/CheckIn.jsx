@@ -267,6 +267,7 @@ export default function CheckIn() {
         open={popup.open}
         title={popup.title}
         lines={popup.lines}
+        autoCloseMs={4000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

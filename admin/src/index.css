@@ -633,6 +633,20 @@ a {
   margin-top: 16px;
 }
 
+.popup-card.checkout {
+  border-color: rgba(97, 218, 251, 0.4);
+}
+
+.popup-card.checkout .popup-glow {
+  background: radial-gradient(circle, rgba(97, 218, 251, 0.35), transparent 70%);
+}
+
+.popup-auto-hint {
+  margin-top: 14px !important;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
 .popup-glow {
   position: absolute;
   width: 180px;
