@@ -5,22 +5,24 @@ import { useSocket } from '../hooks/useSocket';
 
 function SlotCell({ slot, blinkId, color }) {
   const blinking = blinkId && slot.id === blinkId;
+  const occupied = slot.status === 'OCCUPIED';
+  const plate = slot.plate_normalized || '';
   return (
     <div
-      className={`slot display-slot ${slot.vehicle_type.toLowerCase()} ${slot.status} ${
+      className={`slot display-slot plate-only ${slot.vehicle_type.toLowerCase()} ${slot.status} ${
         blinking ? 'slot-blink' : ''
       }`}
+      title={occupied ? `${plate} · ${slot.code}` : slot.code}
       style={{
         borderColor: color,
         boxShadow: blinking ? `0 0 0 3px ${color}, 0 0 28px ${color}aa` : undefined,
         background:
-          slot.status === 'OCCUPIED'
+          occupied
             ? `linear-gradient(160deg, ${color}66, rgba(255,93,93,0.28))`
             : `linear-gradient(160deg, ${color}33, rgba(61,255,168,0.12))`,
       }}
     >
-      <strong>{slot.code}</strong>
-      <small>{slot.status === 'OCCUPIED' ? slot.plate_normalized || 'Busy' : 'Free'}</small>
+      {occupied ? <strong className="plate-only-text">{plate || '—'}</strong> : <span className="slot-empty" />}
     </div>
   );
 }

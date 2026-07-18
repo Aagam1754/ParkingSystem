@@ -338,6 +338,30 @@ a {
   word-break: break-all;
 }
 
+.slot.plate-only {
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  min-height: 56px;
+  padding: 10px 6px;
+}
+
+.slot.plate-only .plate-only-text {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  line-height: 1.2;
+}
+
+.slot.plate-only .slot-empty {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
 @keyframes pulseOcc {
   0%,
   100% {

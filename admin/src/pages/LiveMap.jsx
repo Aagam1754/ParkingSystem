@@ -3,20 +3,21 @@ import { BasesAPI, DashboardAPI } from '../api';
 import { useSocket } from '../hooks/useSocket';
 
 function SlotCell({ slot, color }) {
+  const occupied = slot.status === 'OCCUPIED';
+  const plate = slot.plate_normalized || '';
   return (
     <div
-      className={`slot ${slot.vehicle_type.toLowerCase()} ${slot.status}`}
+      className={`slot plate-only ${slot.vehicle_type.toLowerCase()} ${slot.status}`}
       style={{
         borderColor: `${color}99`,
         background:
-          slot.status === 'OCCUPIED'
+          occupied
             ? `linear-gradient(160deg, ${color}66, rgba(255,93,93,0.28))`
             : `linear-gradient(160deg, ${color}40, rgba(61,255,168,0.14))`,
       }}
-      title={slot.plate_normalized ? `${slot.code} · ${slot.plate_normalized}` : slot.code}
+      title={occupied ? `${plate} · ${slot.code}` : slot.code}
     >
-      <strong>{slot.code}</strong>
-      <small>{slot.status === 'OCCUPIED' ? slot.plate_normalized || 'Busy' : slot.vehicle_type}</small>
+      {occupied ? <strong className="plate-only-text">{plate || '—'}</strong> : <span className="slot-empty" />}
     </div>
   );
 }
