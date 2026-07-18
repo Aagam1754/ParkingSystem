@@ -29,7 +29,13 @@ export async function api(path, options = {}) {
     if (res.status === 401 && !isPublicAuth) {
       localStorage.removeItem('parking_token');
     }
-    throw new Error(data.error || (res.status === 401 ? 'Unauthorized — please login again' : `Request failed (${res.status})`));
+    const fallback =
+      res.status === 401
+        ? 'Unauthorized — please login again'
+        : res.status === 413
+          ? 'Image too large for scan. Move closer / retry — frame will be compressed.'
+          : `Request failed (${res.status})`;
+    throw new Error(data.error || fallback);
   }
   return data;
 }

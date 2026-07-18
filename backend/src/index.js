@@ -35,7 +35,9 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+// Webcam frames are base64 JPEG/PNG — default 100kb limit is too small
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'parking-api', db: process.env.DB_NAME || 'parking' });

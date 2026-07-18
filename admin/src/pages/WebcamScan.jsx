@@ -68,11 +68,15 @@ export default function WebcamScan() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.videoWidth) return null;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+
+    // Downscale before upload so request stays under API body limits
+    const maxW = 960;
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.85);
+    return canvas.toDataURL('image/jpeg', 0.7);
   }
 
   async function scanOnce() {
