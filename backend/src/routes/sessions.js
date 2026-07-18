@@ -2,11 +2,14 @@ import { Router } from 'express';
 import { query, withTransaction } from '../db/pool.js';
 import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { processEntryScan, processExitScan } from '../services/allotment.js';
+import { emitAssistantTips } from '../services/assistantTips.js';
 
 const router = Router();
 
 function emitOccupancy(io) {
-  if (io) io.emit('occupancy.updated', { at: new Date().toISOString() });
+  if (!io) return;
+  io.emit('occupancy.updated', { at: new Date().toISOString() });
+  emitAssistantTips(io);
 }
 
 router.get('/', requireAuth, async (req, res) => {
