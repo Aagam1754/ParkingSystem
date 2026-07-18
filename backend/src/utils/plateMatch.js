@@ -15,23 +15,6 @@ const CONFUSABLES = {
   Z: '2',
 };
 
-function editDistance(a, b) {
-  const m = a.length;
-  const n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i += 1) dp[i][0] = i;
-  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= m; i += 1) {
-    for (let j = 1; j <= n; j += 1) {
-      dp[i][j] =
-        a[i - 1] === b[j - 1]
-          ? dp[i - 1][j - 1]
-          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
 function normalizeLoose(text) {
   return normalizePlate(text).replace(/[^A-Z0-9]/g, '');
 }
@@ -41,15 +24,13 @@ function confuseEqual(a, b) {
   return CONFUSABLES[a] === b || CONFUSABLES[b] === a;
 }
 
-function fuzzyEquals(a, b, maxDiff = 2) {
+/** Strict near-equal: same length, at most 1 confusable/typo. */
+function nearEqual(a, b, maxDiff = 1) {
   if (a === b) return true;
-  if (Math.abs(a.length - b.length) > maxDiff) return false;
+  if (a.length !== b.length) return false;
   let diff = 0;
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i += 1) {
-    const ca = a[i] || '';
-    const cb = b[i] || '';
-    if (!confuseEqual(ca, cb)) {
+  for (let i = 0; i < a.length; i += 1) {
+    if (!confuseEqual(a[i], b[i])) {
       diff += 1;
       if (diff > maxDiff) return false;
     }
@@ -57,48 +38,43 @@ function fuzzyEquals(a, b, maxDiff = 2) {
   return true;
 }
 
-/** Find best registered plate inside OCR candidates / raw blob. */
+/** Strict Indian private/commercial plate shape, e.g. GJ01YK1001 */
+export function isStrictIndianPlate(plate) {
+  const p = normalizeLoose(plate);
+  return /^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$/.test(p);
+}
+
+/**
+ * Find registered plate from OCR — exact / 1-char only.
+ * No sliding-window fuzzy (that caused phantom check-ins on empty camera).
+ */
 export function resolvePlateFromOcr({ plate, candidates = [], rawText = '' }, registeredPlates) {
   const known = registeredPlates.map(normalizePlate).filter(Boolean);
   const blob = normalizeLoose([plate, ...candidates, rawText].filter(Boolean).join(''));
   const tryList = [plate, ...candidates].map(normalizeLoose).filter(Boolean);
 
-  // 1) exact / near exact against candidates
+  // 1) exact candidate match
   for (const cand of tryList) {
     for (const k of known) {
-      if (fuzzyEquals(cand, k, 1)) {
-        return { plate: k, matched: true, method: 'candidate' };
+      if (cand === k) {
+        return { plate: k, matched: true, method: 'exact' };
       }
     }
   }
 
-  // 2) registered plate appears as substring in OCR blob (common with noisy OCR)
+  // 2) full registered plate appears as contiguous substring in OCR blob
   for (const k of known) {
-    if (blob.includes(k)) {
+    if (k.length >= 8 && blob.includes(k)) {
       return { plate: k, matched: true, method: 'substring' };
     }
-    // sliding window fuzzy
-    for (let i = 0; i <= Math.max(0, blob.length - k.length); i += 1) {
-      const window = blob.slice(i, i + k.length);
-      if (fuzzyEquals(window, k, 2)) {
-        return { plate: k, matched: true, method: 'window' };
-      }
-    }
   }
 
-  // 3) edit distance <= 2 against known
+  // 3) near-equal full candidate (1 char / confusable only), same length
   for (const cand of tryList) {
-    let best = null;
-    let bestDist = 99;
     for (const k of known) {
-      const d = editDistance(cand, k);
-      if (d < bestDist) {
-        bestDist = d;
-        best = k;
+      if (nearEqual(cand, k, 1)) {
+        return { plate: k, matched: true, method: 'near' };
       }
-    }
-    if (best && bestDist <= 2) {
-      return { plate: best, matched: true, method: 'edit' };
     }
   }
 
@@ -108,5 +84,5 @@ export function resolvePlateFromOcr({ plate, candidates = [], rawText = '' }, re
 
 export function bestRegisteredMatch(rawPlate, registeredPlates) {
   const resolved = resolvePlateFromOcr({ plate: rawPlate }, registeredPlates);
-  return resolved.plate || normalizePlate(rawPlate);
+  return resolved.matched ? resolved.plate : normalizePlate(rawPlate);
 }

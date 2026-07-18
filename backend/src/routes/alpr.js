@@ -3,6 +3,7 @@ import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { query, withTransaction } from '../db/pool.js';
 import { processEntryScan, processExitScan } from '../services/allotment.js';
 import { resolvePlateFromOcr } from '../utils/plateMatch.js';
+import { acceptWebcamPlate } from '../utils/plateGate.js';
 
 const router = Router();
 const PYTHON_ALPR_URL = process.env.PYTHON_ALPR_URL || 'http://127.0.0.1:5001';
@@ -94,7 +95,18 @@ router.post(
       const knownPlates = await getKnownPlates();
       let ocr = await runOcr(req.body?.imageBase64, knownPlates);
       ocr = applyKnownMatch(ocr, knownPlates);
-      return res.json(ocr);
+      // Hide OCR gibberish from the UI — empty camera must not look like a plate
+      const gate = acceptWebcamPlate(ocr);
+      if (!gate.ok) {
+        return res.json({
+          ...ocr,
+          plate: null,
+          confidence: 0,
+          matchedRegistered: false,
+          message: gate.reason,
+        });
+      }
+      return res.json({ ...ocr, plate: gate.plate });
     } catch (err) {
       console.error(err);
       return res.status(err.status || 503).json({
@@ -119,8 +131,6 @@ router.post(
       const knownPlates = await getKnownPlates();
 
       // Gate check-in: WEBCAM must scan an image — never allot from typed/demo plate alone
-      const indianPlate = /^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}$/;
-
       if (source === 'WEBCAM') {
         if (!body.imageBase64) {
           return res.status(422).json({
@@ -128,15 +138,12 @@ router.post(
           });
         }
         ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
-        plate = ocr.plate || null;
-        confidence = Number(ocr.confidence ?? confidence);
-        // Reject OCR garbage — only known plates or valid Indian plate format
-        if (plate && !ocr.matchedRegistered && !indianPlate.test(String(plate).toUpperCase())) {
-          return res.status(422).json({
-            error: 'Plate not clear enough yet. Hold the number plate steady in the yellow box.',
-            ocr,
-          });
+        const gate = acceptWebcamPlate(ocr);
+        if (!gate.ok) {
+          return res.status(422).json({ error: gate.reason, ocr });
         }
+        plate = gate.plate;
+        confidence = Number(ocr.confidence ?? confidence);
       } else if (body.imageBase64) {
         ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
         plate = ocr.plate || null;
@@ -188,17 +195,45 @@ router.post(
   requireRoles('SUPER_ADMIN', 'LOT_ADMIN', 'SECURITY_OPERATOR'),
   async (req, res) => {
     try {
-      let plate = req.body?.plate;
-      if (!plate && req.body?.imageBase64) {
+      const body = req.body || {};
+      const source = body.source || 'WEBCAM';
+      let plate = null;
+      let ocr = null;
+
+      if (source === 'WEBCAM') {
+        if (!body.imageBase64) {
+          return res.status(422).json({
+            error: 'Camera image required. Check-out only after a plate scan.',
+          });
+        }
         const knownPlates = await getKnownPlates();
-        const ocr = applyKnownMatch(await runOcr(req.body.imageBase64, knownPlates), knownPlates);
-        plate = ocr.plate;
+        ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
+        const gate = acceptWebcamPlate(ocr);
+        if (!gate.ok) {
+          return res.status(422).json({ error: gate.reason, ocr });
+        }
+        plate = gate.plate;
+      } else {
+        plate = body.plate || null;
+        if (!plate && body.imageBase64) {
+          const knownPlates = await getKnownPlates();
+          ocr = applyKnownMatch(await runOcr(body.imageBase64, knownPlates), knownPlates);
+          plate = ocr.plate;
+        }
       }
+
+      if (!plate) {
+        return res.status(422).json({
+          error: 'Could not read number plate for check-out.',
+          ocr,
+        });
+      }
+
       const result = await withTransaction((conn) =>
         processExitScan(conn, {
           plate,
-          confidence: req.body?.confidence,
-          source: req.body?.source || 'WEBCAM',
+          confidence: body.confidence,
+          source,
         })
       );
       emitLive(req, result, 'checkout.success');

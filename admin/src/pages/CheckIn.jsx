@@ -3,6 +3,7 @@ import { AlprAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
 import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
+import { canActOnScan } from '../utils/plateGate';
 import { formatPlate } from '../utils/plates';
 
 export default function CheckIn() {
@@ -10,6 +11,8 @@ export default function CheckIn() {
   const scanningRef = useRef(false);
   const cooldownPlateRef = useRef('');
   const cooldownUntilRef = useRef(0);
+  const lastPlateRef = useRef('');
+  const stableCountRef = useRef(0);
   const { videoRef, cameraOn, cameraError, startCamera, stopCamera, setCameraError } = useCamera();
 
   const [autoScan, setAutoScan] = useState(true);
@@ -100,50 +103,67 @@ export default function CheckIn() {
         return;
       }
 
-      setStatus('Scanning plate from camera…');
+      setStatus('Looking for a real plate in the yellow box…');
       let scanned = await AlprAPI.scan({ imageBase64: frames[0] });
-      if (!scanned?.plate && scanned?.engine !== 'busy' && frames[1]) {
-        scanned = await AlprAPI.scan({ imageBase64: frames[1] });
-      }
       if (scanned?.engine === 'busy') {
-        setStatus('Scanner catching up — keep plate in the yellow box');
+        setStatus('Scanner catching up…');
         return;
       }
 
-      if (scanned?.plate) {
-        setDetectedPlate(scanned.plate);
-        setConfidence(scanned.confidence || 0);
-        setOcrHint(scanned.message || '');
-        setError('');
-
-        const plate = scanned.plate;
-        if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
-          setStatus(`Already handled ${plate} — show another plate or check out first`);
-          return;
-        }
-
-        setStatus(`Plate ${plate} — allocating slot…`);
-        // Camera image required — backend rejects plate-only check-in for WEBCAM
-        const data = await AlprAPI.checkIn({
-          imageBase64: frames[0],
-          source: 'WEBCAM',
-        });
-        setResult(data);
-        if (data.allotted) onCheckinSuccess(data);
-        else setStatus(data.reason || 'Not allotted');
-      } else {
-        setStatus('No plate on camera yet — slot waits for a successful scan');
-        setOcrHint(scanned?.rawText?.slice(0, 80) || scanned?.message || '');
+      // Ignore OCR noise — only registered match or strict Indian plate
+      if (!canActOnScan(scanned)) {
+        stableCountRef.current = 0;
+        lastPlateRef.current = '';
+        setDetectedPlate('');
+        setConfidence(0);
+        setStatus('Waiting — show a number plate (no action until plate is clear)');
+        setOcrHint(scanned?.message || scanned?.rawText?.slice(0, 60) || '');
+        return;
       }
+
+      setDetectedPlate(scanned.plate);
+      setConfidence(scanned.confidence || 0);
+      setOcrHint(scanned.message || '');
+      setError('');
+
+      if (scanned.plate === lastPlateRef.current) stableCountRef.current += 1;
+      else {
+        lastPlateRef.current = scanned.plate;
+        stableCountRef.current = 1;
+      }
+
+      // Need the same plate on 3 consecutive scans before allotting
+      if (stableCountRef.current < 3) {
+        setStatus(`Saw ${formatPlate(scanned.plate)} (${stableCountRef.current}/3) — hold steady…`);
+        return;
+      }
+
+      const plate = scanned.plate;
+      if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
+        setStatus(`Already handled ${formatPlate(plate)}`);
+        return;
+      }
+
+      setStatus(`Plate ${formatPlate(plate)} — allocating slot…`);
+      const data = await AlprAPI.checkIn({
+        imageBase64: frames[0],
+        source: 'WEBCAM',
+      });
+      setResult(data);
+      stableCountRef.current = 0;
+      if (data.allotted) onCheckinSuccess(data);
+      else setStatus(data.reason || 'Not allotted');
     } catch (err) {
+      stableCountRef.current = 0;
       if (/already checked in/i.test(err.message)) {
         setStatus(err.message);
         setError(err.message);
         cooldownPlateRef.current = detectedPlate;
         cooldownUntilRef.current = Date.now() + 15000;
-      } else if (/timed out|Could not read number plate/i.test(err.message)) {
-        setStatus('Could not read plate — hold steadier in the yellow box');
+      } else if (/No clear number plate|Could not read|not clear/i.test(err.message)) {
+        setStatus('Waiting — show a number plate in the yellow box');
         setOcrHint(err.message);
+        setError('');
       } else {
         setError(err.message);
       }
@@ -157,7 +177,7 @@ export default function CheckIn() {
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 2000);
+    }, 2200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);

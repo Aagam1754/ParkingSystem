@@ -149,43 +149,29 @@ def loose(text: str) -> str:
     return normalize_plate(text).translate(CONFUSABLES)
 
 
-def fuzzy_eq(a: str, b: str, max_diff: int = 2) -> bool:
-    a, b = loose(a), loose(b)
+def near_eq(a: str, b: str) -> bool:
+    """Same length, at most 1 confusable/typo — no loose sliding fuzzy."""
+    a, b = normalize_plate(a), normalize_plate(b)
     if a == b:
         return True
-    if abs(len(a) - len(b)) > max_diff:
+    if len(a) != len(b) or len(a) < 8:
         return False
-    # pad
-    n = max(len(a), len(b))
-    a = a.ljust(n)
-    b = b.ljust(n)
-    return sum(x != y for x, y in zip(a, b)) <= max_diff
+    la, lb = loose(a), loose(b)
+    if la == lb:
+        return True
+    return sum(x != y for x, y in zip(a, b)) <= 1
 
 
 def match_known(raw_text: str, candidates: list[str], known_plates: list[str]) -> Optional[str]:
     blob = normalize_plate(raw_text + "".join(candidates))
-    loose_blob = loose(blob)
     known = [normalize_plate(k) for k in known_plates if normalize_plate(k)]
+    # Exact full-plate substring only (prevents empty-camera phantom matches)
     for k in known:
-        if k and k in blob:
-            return k
-        lk = loose(k)
-        if lk and lk in loose_blob:
+        if len(k) >= 8 and k in blob:
             return k
     for cand in candidates:
         for k in known:
-            if fuzzy_eq(cand, k, 2):
-                return k
-    # sliding window on blob
-    for k in known:
-        n = len(k)
-        if n < 6:
-            continue
-        for i in range(0, max(0, len(blob) - n + 1)):
-            if fuzzy_eq(blob[i : i + n], k, 2):
-                return k
-        for i in range(0, max(0, len(loose_blob) - n + 1)):
-            if fuzzy_eq(loose_blob[i : i + n], k, 2):
+            if near_eq(cand, k):
                 return k
     return None
 
@@ -235,12 +221,11 @@ def ocr_image(img: np.ndarray, known_plates: list[str]):
     hit = match_known(raw, candidates, known_plates)
     if hit:
         return hit, 0.92, candidates[:8], raw, "tesseract+known"
-    # Only accept a standalone candidate if it looks like an Indian plate
-    indian = re.compile(r"^[A-Z]{2}\d{1,2}[A-Z]{1,3}\d{3,4}$")
+    # Guest: only strict Indian shape (GJ01YK1001), never OCR gibberish
+    indian = re.compile(r"^[A-Z]{2}\d{2}[A-Z]{1,3}\d{4}$")
     for cand in candidates:
         if indian.match(cand):
-            return cand, 0.78, candidates[:8], raw, "tesseract"
-    # Do NOT return OCR garbage — that used to auto-allot fake guest slots
+            return cand, 0.86, candidates[:8], raw, "tesseract"
     return None, 0.0, candidates[:8], raw, "tesseract"
 
 
