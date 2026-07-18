@@ -9,10 +9,10 @@ function SlotCell({ slot, blinkId, color }) {
   const plate = slot.plate_normalized || '';
   return (
     <div
-      className={`slot display-slot plate-only ${slot.vehicle_type.toLowerCase()} ${slot.status} ${
+      className={`slot display-slot ${slot.vehicle_type.toLowerCase()} ${slot.status} ${
         blinking ? 'slot-blink' : ''
       }`}
-      title={occupied ? `${plate} · ${slot.code}` : slot.code}
+      title={occupied ? `${slot.code} · ${plate}` : slot.code}
       style={{
         borderColor: color,
         boxShadow: blinking ? `0 0 0 3px ${color}, 0 0 28px ${color}aa` : undefined,
@@ -22,7 +22,8 @@ function SlotCell({ slot, blinkId, color }) {
             : `linear-gradient(160deg, ${color}33, rgba(61,255,168,0.12))`,
       }}
     >
-      {occupied ? <strong className="plate-only-text">{plate || '—'}</strong> : <span className="slot-empty" />}
+      <strong>{slot.code}</strong>
+      <small>{occupied ? plate || '—' : 'Free'}</small>
     </div>
   );
 }

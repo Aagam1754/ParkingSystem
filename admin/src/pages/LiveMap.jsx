@@ -7,7 +7,7 @@ function SlotCell({ slot, color }) {
   const plate = slot.plate_normalized || '';
   return (
     <div
-      className={`slot plate-only ${slot.vehicle_type.toLowerCase()} ${slot.status}`}
+      className={`slot ${slot.vehicle_type.toLowerCase()} ${slot.status}`}
       style={{
         borderColor: `${color}99`,
         background:
@@ -15,9 +15,10 @@ function SlotCell({ slot, color }) {
             ? `linear-gradient(160deg, ${color}66, rgba(255,93,93,0.28))`
             : `linear-gradient(160deg, ${color}40, rgba(61,255,168,0.14))`,
       }}
-      title={occupied ? `${plate} · ${slot.code}` : slot.code}
+      title={occupied ? `${slot.code} · ${plate}` : slot.code}
     >
-      {occupied ? <strong className="plate-only-text">{plate || '—'}</strong> : <span className="slot-empty" />}
+      <strong>{slot.code}</strong>
+      <small>{occupied ? plate || '—' : 'Free'}</small>
     </div>
   );
 }
