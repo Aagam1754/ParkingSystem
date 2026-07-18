@@ -1,17 +1,20 @@
-/** Auth token lives in sessionStorage so each browser session asks for login again. */
+/**
+ * Auth token in localStorage so multiple tabs/screens in the same browser
+ * share one login (check-in + user display + map together).
+ */
 const TOKEN_KEY = 'parking_token';
 
 export function getAuthToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setAuthToken(token) {
-  // Clear any old persistent login
-  localStorage.removeItem(TOKEN_KEY);
-  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token);
+  // clean any older sessionStorage copy
+  sessionStorage.removeItem(TOKEN_KEY);
 }
 
 export function clearAuthToken() {
-  sessionStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
 }

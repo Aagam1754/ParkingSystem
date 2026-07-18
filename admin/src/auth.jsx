@@ -9,8 +9,12 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Always clear leftover localStorage logins from older builds
-    localStorage.removeItem('parking_token');
+    // Migrate old sessionStorage token (per-tab) into shared localStorage
+    const sessionToken = sessionStorage.getItem('parking_token');
+    if (sessionToken && !getAuthToken()) {
+      setAuthToken(sessionToken);
+    }
+    sessionStorage.removeItem('parking_token');
 
     const token = getAuthToken();
     if (!token) {
