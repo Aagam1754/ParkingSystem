@@ -79,10 +79,11 @@ export default function CheckIn() {
 
     const vw = video.videoWidth;
     const vh = video.videoHeight;
+    // Must match .webcam-guide CSS: left/right 10%, top 30%, bottom 28%
     const gx = Math.floor(vw * 0.1);
-    const gy = Math.floor(vh * 0.32);
+    const gy = Math.floor(vh * 0.3);
     const gw = Math.floor(vw * 0.8);
-    const gh = Math.floor(vh * 0.4);
+    const gh = Math.floor(vh * 0.42);
     return [
       drawAndEncode(gx, gy, gw, gh, 900), // guide crop first
       drawAndEncode(0, 0, vw, vh, 960),
@@ -132,7 +133,7 @@ export default function CheckIn() {
         if (data.allotted) onCheckinSuccess(data);
         else setStatus(data.reason || 'Not allotted');
       } else {
-        setStatus('Still looking… fill yellow box with plate, hold 1–2s');
+        setStatus('No plate detected yet — slot cannot allot without a plate. Use demo buttons →');
         setOcrHint(scanned?.rawText?.slice(0, 80) || scanned?.message || '');
       }
     } catch (err) {
@@ -156,7 +157,7 @@ export default function CheckIn() {
     autoCycle();
     const id = setInterval(() => {
       autoCycle();
-    }, 3500); // wait for OCR to finish; avoid stacking scans
+    }, 2000); // OCR is fast now; still wait so scans do not stack
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScan, cameraOn]);
