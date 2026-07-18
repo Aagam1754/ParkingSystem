@@ -66,22 +66,32 @@ def decode_image(image_base64: str) -> np.ndarray:
 
 
 def preprocess_variants(img: np.ndarray) -> list[np.ndarray]:
-    # Focus on center guide area (yellow box region roughly)
     h, w = img.shape[:2]
-    y1, y2 = int(h * 0.28), int(h * 0.78)
-    x1, x2 = int(w * 0.08), int(w * 0.92)
-    roi = img[y1:y2, x1:x2] if y2 > y1 and x2 > x1 else img
+    rois = [img]
+    # multiple crops — phone may not sit exactly in center guide
+    crops = [
+        (0.08, 0.25, 0.92, 0.80),
+        (0.15, 0.35, 0.85, 0.70),
+        (0.05, 0.15, 0.95, 0.90),
+        (0.20, 0.40, 0.80, 0.62),
+    ]
+    for x1r, y1r, x2r, y2r in crops:
+        x1, y1, x2, y2 = int(w * x1r), int(h * y1r), int(w * x2r), int(h * y2r)
+        if x2 > x1 and y2 > y1:
+            rois.append(img[y1:y2, x1:x2])
 
     variants: list[np.ndarray] = []
-    for source in (roi, img):
+    for source in rois:
         gray = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+        # boost contrast for phone-screen glare
+        gray = cv2.convertScaleAbs(gray, alpha=1.4, beta=10)
         gray = cv2.bilateralFilter(gray, 9, 75, 75)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(gray)
-        variants.append(clahe)
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(gray)
+        sharp = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]]))
+        variants.append(sharp)
 
-        # upscale for phone-screen plates
-        scale = max(1.0, 1200 / max(clahe.shape[:2]))
-        big = cv2.resize(clahe, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        scale = max(1.5, 1400 / max(sharp.shape[:2]))
+        big = cv2.resize(sharp, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         variants.append(big)
 
         thr = cv2.adaptiveThreshold(
@@ -89,8 +99,10 @@ def preprocess_variants(img: np.ndarray) -> list[np.ndarray]:
         )
         variants.append(thr)
         variants.append(cv2.bitwise_not(thr))
+        _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.append(otsu)
+        variants.append(cv2.bitwise_not(otsu))
 
-        # morphological clean
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         variants.append(cv2.morphologyEx(thr, cv2.MORPH_CLOSE, kernel))
 
