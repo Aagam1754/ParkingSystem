@@ -1,0 +1,46 @@
+# ParkLane — Render Blueprint
+# Dashboard → New → Blueprint → connect this repo (branch with this file)
+#
+# Required: external MySQL (Render has no managed MySQL).
+# When prompted, set DATABASE_URL like:
+#   mysql://USER:PASSWORD@HOST:3306/parking
+
+services:
+  - type: web
+    name: parklane-admin
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm run render:build
+    startCommand: npm run render:start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        value: '*'
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: DB_SSL
+        value: 'true'
+      - key: DATABASE_URL
+        sync: false
+      - key: PYTHON_ALPR_HOSTPORT
+        fromService:
+          name: parklane-alpr
+          type: web
+          property: hostport
+
+  - type: web
+    name: parklane-alpr
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./alpr-service/Dockerfile
+    dockerContext: ./alpr-service
+    healthCheckPath: /health
+    envVars:
+      - key: OCR_TIMEOUT_SEC
+        value: '4'

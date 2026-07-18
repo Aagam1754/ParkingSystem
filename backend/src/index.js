@@ -1,4 +1,7 @@
+import fs from 'fs';
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -11,8 +14,12 @@ import dashboardRoutes from './routes/dashboard.js';
 import alprRoutes from './routes/alpr.js';
 import assistantRoutes from './routes/assistant.js';
 import { emitAssistantTips } from './services/assistantTips.js';
+import { getDatabaseName } from './db/config.js';
 
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const adminDist = path.resolve(__dirname, '../../admin/dist');
 
 const app = express();
 const server = http.createServer(app);
@@ -42,7 +49,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'parking-api', db: process.env.DB_NAME || 'parking' });
+  res.json({ ok: true, service: 'parking-api', db: getDatabaseName() });
 });
 
 app.use('/api/auth', authRoutes);
@@ -60,7 +67,26 @@ io.on('connection', (socket) => {
   });
 });
 
+// Production: serve built admin SPA from the same origin (Render-friendly).
+if (fs.existsSync(adminDist)) {
+  app.use(express.static(adminDist, { index: false, maxAge: '1h' }));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+    res.sendFile(path.join(adminDist, 'index.html'), (err) => {
+      if (err) next(err);
+    });
+  });
+}
+
 const port = Number(process.env.PORT || 4000);
 server.listen(port, '0.0.0.0', () => {
   console.log(`Parking API listening on http://0.0.0.0:${port}`);
+  if (fs.existsSync(adminDist)) {
+    console.log(`Admin panel served from ${adminDist}`);
+  }
 });
