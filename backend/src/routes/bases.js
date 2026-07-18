@@ -4,26 +4,41 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+router.get('/building', requireAuth, async (_req, res) => {
+  const buildings = await query(
+    `SELECT * FROM buildings WHERE status = 'ACTIVE' ORDER BY id ASC LIMIT 1`
+  );
+  const building = buildings[0] || null;
+  const companies = await query(
+    `SELECT id, name, code, floor_label, address, color_hex, status
+     FROM companies WHERE status = 'ACTIVE' ORDER BY id`
+  );
+  res.json({ building, companies });
+});
+
 router.get('/', requireAuth, async (_req, res) => {
   const bases = await query(
     `SELECT b.*,
+      bd.name AS building_name,
       (SELECT COUNT(*) FROM slots s WHERE s.base_id = b.id) AS slot_total,
       (SELECT COUNT(*) FROM slots s WHERE s.base_id = b.id AND s.status = 'FREE') AS free_total,
       (SELECT COUNT(*) FROM slots s WHERE s.base_id = b.id AND s.status = 'OCCUPIED') AS occupied_total
      FROM bases b
+     LEFT JOIN buildings bd ON bd.id = b.building_id
      WHERE b.status = 'ACTIVE'
      ORDER BY b.level_no ASC, b.id ASC`
   );
 
   const pools = await query(
     `SELECT s.base_id, s.owner_type, s.company_id, c.name AS company_name, c.code AS company_code,
+            c.color_hex,
             s.vehicle_type,
             COUNT(*) AS total,
             SUM(s.status = 'FREE') AS free_count,
             SUM(s.status = 'OCCUPIED') AS occupied_count
      FROM slots s
      LEFT JOIN companies c ON c.id = s.company_id
-     GROUP BY s.base_id, s.owner_type, s.company_id, c.name, c.code, s.vehicle_type
+     GROUP BY s.base_id, s.owner_type, s.company_id, c.name, c.code, c.color_hex, s.vehicle_type
      ORDER BY s.base_id, s.owner_type, s.company_id, s.vehicle_type`
   );
 
@@ -37,13 +52,19 @@ router.get('/', requireAuth, async (_req, res) => {
 
 router.get('/:id/occupancy', requireAuth, async (req, res) => {
   const baseId = Number(req.params.id);
-  const bases = await query(`SELECT * FROM bases WHERE id = ? LIMIT 1`, [baseId]);
+  const bases = await query(
+    `SELECT b.*, bd.name AS building_name, bd.address AS building_address
+     FROM bases b
+     LEFT JOIN buildings bd ON bd.id = b.building_id
+     WHERE b.id = ? LIMIT 1`,
+    [baseId]
+  );
   const base = bases[0];
   if (!base) return res.status(404).json({ error: 'Basement not found' });
 
   const slots = await query(
     `SELECT s.*,
-       c.name AS company_name, c.code AS company_code,
+       c.name AS company_name, c.code AS company_code, c.color_hex,
        ps.id AS session_id,
        ps.plate_normalized,
        ps.session_type,
@@ -77,6 +98,7 @@ router.get('/:id/occupancy', requireAuth, async (req, res) => {
         companyId: slot.company_id,
         companyName: slot.company_name || 'General Parking',
         companyCode: slot.company_code || 'GENERAL',
+        colorHex: slot.color_hex || '#8FA9A0',
         cars: [],
         bikes: [],
       };

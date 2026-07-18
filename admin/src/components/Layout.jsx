@@ -2,12 +2,14 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth';
 
 const links = [
-  { to: '/', label: 'Live Basement Map' },
-  { to: '/webcam', label: 'Webcam Scan' },
-  { to: '/scan', label: 'Manual Scan Desk' },
+  { to: '/', label: 'Basement Map' },
+  { to: '/check-in', label: 'Check-in Gate' },
+  { to: '/check-out', label: 'Check-out Gate' },
+  { to: '/display', label: 'User Display' },
+  { to: '/scan', label: 'Manual Desk' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/vehicles', label: 'Vehicles' },
-  { to: '/registry', label: 'Companies & Members' },
+  { to: '/registry', label: 'Companies' },
 ];
 
 export default function Layout() {
@@ -17,9 +19,9 @@ export default function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">PL</div>
-          <h1>ParkLane</h1>
-          <p>Smart allotment control</p>
+          <div className="brand-mark">EF</div>
+          <h1>Eastface</h1>
+          <p>ParkLane control</p>
         </div>
 
         <nav className="nav">

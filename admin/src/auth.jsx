@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { AuthAPI } from './api';
+import { clearAuthToken, getAuthToken, setAuthToken } from './storage';
 
 const AuthContext = createContext(null);
 
@@ -8,26 +9,33 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('parking_token');
+    // Migrate old sessionStorage token (per-tab) into shared localStorage
+    const sessionToken = sessionStorage.getItem('parking_token');
+    if (sessionToken && !getAuthToken()) {
+      setAuthToken(sessionToken);
+    }
+    sessionStorage.removeItem('parking_token');
+
+    const token = getAuthToken();
     if (!token) {
       setLoading(false);
       return;
     }
     AuthAPI.me()
       .then(setUser)
-      .catch(() => localStorage.removeItem('parking_token'))
+      .catch(() => clearAuthToken())
       .finally(() => setLoading(false));
   }, []);
 
   async function login(email, password) {
     const data = await AuthAPI.login(email, password);
-    localStorage.setItem('parking_token', data.token);
+    setAuthToken(data.token);
     setUser(data.user);
     return data.user;
   }
 
   function logout() {
-    localStorage.removeItem('parking_token');
+    clearAuthToken();
     setUser(null);
   }
 

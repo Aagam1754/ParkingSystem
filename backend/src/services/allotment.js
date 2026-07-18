@@ -2,7 +2,7 @@ import { normalizePlate } from '../utils/plates.js';
 
 export async function findRegisteredVehicle(conn, plateNormalized) {
   const [rows] = await conn.query(
-    `SELECT v.*, c.name AS company_name, c.code AS company_code,
+    `SELECT v.*, c.name AS company_name, c.code AS company_code, c.color_hex AS company_color,
             u.id AS member_id, u.full_name AS member_name, u.email AS member_email, u.role AS member_role
      FROM vehicles v
      LEFT JOIN companies c ON c.id = v.company_id
@@ -217,27 +217,47 @@ export async function processEntryScan(conn, payload) {
     }
     sessionType = 'GUEST';
     allotmentNote = guestCreated
-      ? 'New guest registered → general pool (FCFS)'
-      : 'Guest / unregistered → general pool (FCFS)';
+      ? 'New guest registered → Basement 1 general parking (FCFS)'
+      : 'Guest / unregistered → Basement 1 general parking (FCFS)';
   }
 
   const resolvedType = vehicle?.vehicle_type || vehicleType;
+
+  // Guests always prefer Basement 1 (GENERAL). Company cars skip B1.
+  let effectivePreferredBaseId = preferredBaseId;
+  if (sessionType === 'GUEST' || sessionType === 'GENERAL') {
+    const [generalBase] = await conn.query(
+      `SELECT id FROM bases WHERE base_kind = 'GENERAL' AND status = 'ACTIVE' ORDER BY level_no ASC LIMIT 1`
+    );
+    effectivePreferredBaseId = generalBase[0]?.id || preferredBaseId;
+  } else if (preferredBaseId) {
+    const [baseMeta] = await conn.query(`SELECT base_kind FROM bases WHERE id = ? LIMIT 1`, [
+      preferredBaseId,
+    ]);
+    if (baseMeta[0]?.base_kind === 'GENERAL') {
+      effectivePreferredBaseId = null; // company vehicle should not park in B1 pools
+    }
+  }
+
   let slot = await pickFreeSlotFCFS(conn, {
     vehicleType: resolvedType,
     companyId: targetCompanyId,
-    preferredBaseId,
+    preferredBaseId: effectivePreferredBaseId,
   });
 
-  // Company pool full → overflow into general
+  // Company pool full → overflow into Basement 1 general
   if (!slot && targetCompanyId) {
+    const [generalBase] = await conn.query(
+      `SELECT id FROM bases WHERE base_kind = 'GENERAL' AND status = 'ACTIVE' ORDER BY level_no ASC LIMIT 1`
+    );
     slot = await pickFreeSlotFCFS(conn, {
       vehicleType: resolvedType,
       companyId: null,
-      preferredBaseId,
+      preferredBaseId: generalBase[0]?.id || null,
     });
     if (slot) {
       sessionType = 'GENERAL';
-      allotmentNote = `Company pool full → overflow general slot (FCFS)`;
+      allotmentNote = `Company pool full → overflow Basement 1 general (FCFS)`;
     }
   }
 
@@ -329,6 +349,20 @@ export async function processEntryScan(conn, payload) {
     sessionResult.insertId,
   ]);
 
+  let companyColor = null;
+  let companyCode = null;
+  if (slot.company_id) {
+    const [co] = await conn.query(
+      `SELECT name, code, color_hex FROM companies WHERE id = ? LIMIT 1`,
+      [slot.company_id]
+    );
+    companyColor = co[0]?.color_hex || null;
+    companyCode = co[0]?.code || null;
+  } else {
+    companyColor = '#8FA9A0';
+    companyCode = 'GENERAL';
+  }
+
   return {
     allotted: true,
     guestCreated,
@@ -341,6 +375,7 @@ export async function processEntryScan(conn, payload) {
           plate: vehicle.plate_raw,
           type: vehicle.vehicle_type,
           company: vehicle.company_name || null,
+          companyCode: vehicle.company_code || companyCode,
           member: vehicle.member_name || vehicle.full_name || null,
           isGuest: Boolean(vehicle.is_guest),
         }
@@ -356,6 +391,8 @@ export async function processEntryScan(conn, payload) {
       vehicleType: slot.vehicle_type,
       ownerType: slot.owner_type,
       companyId: slot.company_id,
+      companyColor,
+      companyCode,
       row: slot.row_no,
       col: slot.col_no,
     },

@@ -1,7 +1,9 @@
+import { clearAuthToken, getAuthToken } from './storage';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function getToken() {
-  return localStorage.getItem('parking_token');
+  return getAuthToken();
 }
 
 export async function api(path, options = {}) {
@@ -27,9 +29,15 @@ export async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !isPublicAuth) {
-      localStorage.removeItem('parking_token');
+      clearAuthToken();
     }
-    throw new Error(data.error || (res.status === 401 ? 'Unauthorized — please login again' : `Request failed (${res.status})`));
+    const fallback =
+      res.status === 401
+        ? 'Unauthorized — please login again'
+        : res.status === 413
+          ? 'Image too large for scan. Move closer / retry — frame will be compressed.'
+          : `Request failed (${res.status})`;
+    throw new Error(data.error || fallback);
   }
   return data;
 }
@@ -48,6 +56,7 @@ export const DashboardAPI = {
   companies: () => api('/api/dashboard/companies'),
   members: () => api('/api/dashboard/members'),
   incidents: () => api('/api/dashboard/incidents'),
+  building: () => api('/api/dashboard/building'),
 };
 
 export const BasesAPI = {
