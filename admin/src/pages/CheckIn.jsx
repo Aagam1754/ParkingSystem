@@ -126,17 +126,8 @@ export default function CheckIn() {
       setOcrHint(scanned.message || '');
       setError('');
 
-      if (scanned.plate === lastPlateRef.current) stableCountRef.current += 1;
-      else {
-        lastPlateRef.current = scanned.plate;
-        stableCountRef.current = 1;
-      }
-
-      // Need the same plate on 3 consecutive scans before allotting
-      if (stableCountRef.current < 3) {
-        setStatus(`Saw ${formatPlate(scanned.plate)} (${stableCountRef.current}/3) — hold steady…`);
-        return;
-      }
+      lastPlateRef.current = scanned.plate;
+      stableCountRef.current = 1;
 
       const plate = scanned.plate;
       if (plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {

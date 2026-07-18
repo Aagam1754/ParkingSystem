@@ -105,16 +105,8 @@ export default function CheckOut() {
       setDetectedPlate(scanned.plate);
       setConfidence(scanned.confidence || 0);
 
-      if (scanned.plate === lastPlateRef.current) stableCountRef.current += 1;
-      else {
-        lastPlateRef.current = scanned.plate;
-        stableCountRef.current = 1;
-      }
-
-      if (stableCountRef.current < 3) {
-        setStatus(`Saw ${formatPlate(scanned.plate)} (${stableCountRef.current}/3) — hold steady…`);
-        return;
-      }
+      lastPlateRef.current = scanned.plate;
+      stableCountRef.current = 1;
 
       if (scanned.plate === cooldownPlateRef.current && Date.now() < cooldownUntilRef.current) {
         setStatus(`Already checked out ${formatPlate(scanned.plate)}`);
