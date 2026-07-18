@@ -1,7 +1,9 @@
+import { clearAuthToken, getAuthToken } from './storage';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function getToken() {
-  return localStorage.getItem('parking_token');
+  return getAuthToken();
 }
 
 export async function api(path, options = {}) {
@@ -27,7 +29,7 @@ export async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !isPublicAuth) {
-      localStorage.removeItem('parking_token');
+      clearAuthToken();
     }
     const fallback =
       res.status === 401
