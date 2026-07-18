@@ -2,7 +2,7 @@ import { normalizePlate } from '../utils/plates.js';
 
 export async function findRegisteredVehicle(conn, plateNormalized) {
   const [rows] = await conn.query(
-    `SELECT v.*, c.name AS company_name, c.code AS company_code,
+    `SELECT v.*, c.name AS company_name, c.code AS company_code, c.color_hex AS company_color,
             u.id AS member_id, u.full_name AS member_name, u.email AS member_email, u.role AS member_role
      FROM vehicles v
      LEFT JOIN companies c ON c.id = v.company_id
@@ -349,6 +349,20 @@ export async function processEntryScan(conn, payload) {
     sessionResult.insertId,
   ]);
 
+  let companyColor = null;
+  let companyCode = null;
+  if (slot.company_id) {
+    const [co] = await conn.query(
+      `SELECT name, code, color_hex FROM companies WHERE id = ? LIMIT 1`,
+      [slot.company_id]
+    );
+    companyColor = co[0]?.color_hex || null;
+    companyCode = co[0]?.code || null;
+  } else {
+    companyColor = '#8FA9A0';
+    companyCode = 'GENERAL';
+  }
+
   return {
     allotted: true,
     guestCreated,
@@ -361,6 +375,7 @@ export async function processEntryScan(conn, payload) {
           plate: vehicle.plate_raw,
           type: vehicle.vehicle_type,
           company: vehicle.company_name || null,
+          companyCode: vehicle.company_code || companyCode,
           member: vehicle.member_name || vehicle.full_name || null,
           isGuest: Boolean(vehicle.is_guest),
         }
@@ -376,6 +391,8 @@ export async function processEntryScan(conn, payload) {
       vehicleType: slot.vehicle_type,
       ownerType: slot.owner_type,
       companyId: slot.company_id,
+      companyColor,
+      companyCode,
       row: slot.row_no,
       col: slot.col_no,
     },

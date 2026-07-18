@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlprAPI, BasesAPI } from '../api';
+import { AlprAPI } from '../api';
 import SuccessPopup from '../components/SuccessPopup';
 import { useCamera } from '../hooks/useCamera';
 import { useSocket } from '../hooks/useSocket';
@@ -9,11 +9,10 @@ export default function CheckIn() {
   const lastPlateRef = useRef('');
   const stableCountRef = useRef(0);
   const scanningRef = useRef(false);
+  const cooldownPlateRef = useRef('');
+  const cooldownUntilRef = useRef(0);
   const { videoRef, cameraOn, cameraError, startCamera, stopCamera, setCameraError } = useCamera();
 
-  const [bases, setBases] = useState([]);
-  const [baseId, setBaseId] = useState('');
-  const [vehicleType, setVehicleType] = useState('CAR');
   const [autoScan, setAutoScan] = useState(true);
   const [detectedPlate, setDetectedPlate] = useState('');
   const [confidence, setConfidence] = useState(0);
@@ -26,18 +25,22 @@ export default function CheckIn() {
     if (!payload?.allotted) return;
     setResult(payload);
     setDetectedPlate(payload.plateNormalized || '');
+    cooldownPlateRef.current = payload.plateNormalized || '';
+    cooldownUntilRef.current = Date.now() + 12000;
     setPopup({
       open: true,
       title: 'Check-in success',
       lines: [
         `Plate ${payload.plateNormalized}`,
-        `Slot ${payload.slot?.code} · ${payload.base?.name}`,
+        `Slot ${payload.slot?.code}`,
+        payload.base?.name || '',
         payload.vehicle?.company
           ? `${payload.vehicle.member || 'Member'} · ${payload.vehicle.company}`
-          : 'Guest parking · Basement 1 General',
+          : 'Guest · Basement 1 General',
         payload.allotmentNote || '',
       ].filter(Boolean),
     });
+    setStatus(`Allotted ${payload.slot?.code} for ${payload.plateNormalized}`);
   }, []);
 
   const { live } = useSocket({
@@ -45,20 +48,10 @@ export default function CheckIn() {
   });
 
   useEffect(() => {
-    BasesAPI.list()
-      .then((list) => {
-        setBases(list);
-        const general = list.find((b) => b.base_kind === 'GENERAL') || list[0];
-        if (general) setBaseId(String(general.id));
-      })
-      .catch((err) => setError(err.message));
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     (async () => {
       await startCamera();
-      if (!cancelled) setStatus('Auto-scan ON — show number plate');
+      if (!cancelled) setStatus('Auto-scan ON — show number plate in yellow box');
     })();
     return () => {
       cancelled = true;
@@ -73,12 +66,12 @@ export default function CheckIn() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !video.videoWidth) return null;
-    const maxW = 960;
+    const maxW = 1100;
     const scale = Math.min(1, maxW / video.videoWidth);
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.7);
+    return canvas.toDataURL('image/jpeg', 0.82);
   }
 
   async function scanOnce() {
@@ -90,7 +83,12 @@ export default function CheckIn() {
       if (data.plate) {
         setDetectedPlate(data.plate);
         setConfidence(data.confidence || 0);
-        setStatus(`Detected ${data.plate}`);
+        setStatus(
+          data.matchedRegistered
+            ? `Registered plate ${data.plate}`
+            : `Detected ${data.plate}`
+        );
+        setError('');
       } else {
         setStatus(data.message || 'Looking for plate…');
       }
@@ -103,24 +101,39 @@ export default function CheckIn() {
     }
   }
 
-  async function checkIn(plateOverride) {
-    const plate = (plateOverride || detectedPlate || '').trim().toUpperCase();
-    if (!plate || scanningRef.current) return;
+  async function checkInFromFrame(plateHint) {
+    if (scanningRef.current) return;
+    const now = Date.now();
+    if (
+      plateHint &&
+      plateHint === cooldownPlateRef.current &&
+      now < cooldownUntilRef.current
+    ) {
+      setStatus(`Already checked in ${plateHint}`);
+      return;
+    }
+
     scanningRef.current = true;
     setError('');
     try {
+      const imageBase64 = captureFrameBase64();
       const data = await AlprAPI.checkIn({
-        plate,
-        vehicleType,
-        baseId: baseId ? Number(baseId) : undefined,
-        confidence: confidence || 0.9,
+        plate: plateHint || detectedPlate || undefined,
+        imageBase64: imageBase64 || undefined,
         source: 'WEBCAM',
       });
       setResult(data);
       if (data.allotted) onCheckinSuccess(data);
       else setError(data.reason || 'Could not allot slot');
     } catch (err) {
-      setError(err.message);
+      // Don't spam scary errors for already-parked during auto-scan
+      if (/already checked in/i.test(err.message)) {
+        setStatus(err.message);
+        cooldownPlateRef.current = plateHint || detectedPlate;
+        cooldownUntilRef.current = Date.now() + 12000;
+      } else {
+        setError(err.message);
+      }
     } finally {
       scanningRef.current = false;
     }
@@ -132,7 +145,6 @@ export default function CheckIn() {
       const data = await scanOnce();
       if (!data?.plate) {
         stableCountRef.current = 0;
-        lastPlateRef.current = '';
         return;
       }
       if (data.plate === lastPlateRef.current) stableCountRef.current += 1;
@@ -140,22 +152,26 @@ export default function CheckIn() {
         lastPlateRef.current = data.plate;
         stableCountRef.current = 1;
       }
-      if (stableCountRef.current >= 2 && (data.confidence || 0) >= 0.7) {
-        setStatus(`Stable ${data.plate} — checking in…`);
-        await checkIn(data.plate);
+      // 1 stable read is enough when registered match; else need 2
+      const need = data.matchedRegistered || (data.confidence || 0) >= 0.85 ? 1 : 2;
+      if (stableCountRef.current >= need && (data.confidence || 0) >= 0.45) {
+        setStatus(`Checking in ${data.plate}…`);
+        await checkInFromFrame(data.plate);
         stableCountRef.current = 0;
       }
-    }, 1600);
+    }, 1200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoScan, cameraOn, vehicleType, baseId]);
+  }, [autoScan, cameraOn]);
 
   return (
     <div className="stack">
       <div className="topbar">
         <div>
           <h2>Check-in gate</h2>
-          <p>Eastface basement entry · auto webcam scan · company / guest allotment</p>
+          <p>
+            Auto plate scan → identify company from DB → allot correct slot (no basement selection)
+          </p>
         </div>
         <span className="live-pill">
           <i />
@@ -195,71 +211,56 @@ export default function CheckIn() {
             <div className="webcam-guide" />
           </div>
           <canvas ref={canvasRef} style={{ display: 'none' }} />
-          <div className="actions" style={{ marginTop: 12 }}>
-            <label>
-              Hint basement
-              <select value={baseId} onChange={(e) => setBaseId(e.target.value)}>
-                {bases.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Type
-              <select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
-                <option value="CAR">Car</option>
-                <option value="BIKE">Bike</option>
-              </select>
-            </label>
-          </div>
+          <p className="muted" style={{ marginTop: 10 }}>
+            Hold plate inside the yellow box. System finds company + free slot automatically.
+          </p>
         </section>
 
         <aside className="stack">
           <section className="panel">
             <div className="panel-header">
-              <h3>Scanned plate</h3>
+              <h3>Live scan result</h3>
             </div>
-            <form
-              className="form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                checkIn();
-              }}
-            >
-              <label>
-                Number plate
-                <input
-                  value={detectedPlate}
-                  onChange={(e) => setDetectedPlate(e.target.value.toUpperCase())}
-                  placeholder="GJ01YK1001"
-                />
-              </label>
+            <div className={`plate-board ${detectedPlate ? 'has-plate' : ''}`}>
+              <div className="muted">Number plate</div>
+              <div className="plate-huge">{detectedPlate || 'SCANNING…'}</div>
               <div className="muted">Confidence {Math.round((confidence || 0) * 100)}%</div>
-              <div className="actions">
-                <button className="btn btn-secondary" type="button" onClick={scanOnce}>
-                  Scan now
-                </button>
-                <button className="btn btn-primary" type="submit">
-                  Check in
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button className="btn btn-secondary" type="button" onClick={scanOnce}>
+                Scan now
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => checkInFromFrame(detectedPlate)}
+              >
+                Check in now
+              </button>
+            </div>
             <p className="muted" style={{ marginTop: 12 }}>
-              Demo York IE plates: <b>GJ01YK1001</b>, <b>GJ01YK2044</b>. Unknown plate → Basement 1 General.
+              York IE demo: <b>GJ01YK1001</b>, <b>GJ01YK2044</b>
             </p>
           </section>
 
           {result?.allotted ? (
-            <section className="panel">
-              <div className="scan-result success">
-                <strong>Last allotment</strong>
+            <section className="panel allot-card">
+              <div className="panel-header">
+                <h3>Allotted parking</h3>
+              </div>
+              <div className="slot-huge slot-blink" style={{ color: result.slot?.companyColor || '#d6ff4b' }}>
+                {result.slot?.code}
+              </div>
+              <div className="scan-result success" style={{ marginTop: 10 }}>
                 <div>
-                  {result.plateNormalized} → <b>{result.slot?.code}</b>
+                  <b>{result.base?.name}</b> ({result.base?.code})
                 </div>
                 <div>
-                  {result.base?.name} · {result.sessionType}
+                  Plate <b>{result.plateNormalized}</b>
+                </div>
+                <div>
+                  {result.vehicle?.company || 'General Parking'}
+                  {result.vehicle?.member ? ` · ${result.vehicle.member}` : ''}
                 </div>
                 <div className="muted">{result.allotmentNote}</div>
               </div>
