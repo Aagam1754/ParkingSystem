@@ -88,11 +88,10 @@ export default function UserDisplay() {
       });
 
       if (blinkTimerRef.current) clearTimeout(blinkTimerRef.current);
-      // Blink allotted slot for exactly 5 seconds
+      // Blink allotted slot for 5s; popup auto-closes separately in 1s
       blinkTimerRef.current = setTimeout(() => {
         setBlinkId(null);
         setHighlightMode(false);
-        setPopup((p) => ({ ...p, open: false }));
       }, 5000);
     },
     [loadBase]
@@ -247,7 +246,7 @@ export default function UserDisplay() {
         open={popup.open}
         title={popup.title}
         lines={popup.lines}
-        autoCloseMs={5000}
+        autoCloseMs={1000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

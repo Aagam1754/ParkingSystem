@@ -228,7 +228,7 @@ export default function CheckOut() {
         title={popup.title}
         lines={popup.lines}
         tone="checkout"
-        autoCloseMs={4000}
+        autoCloseMs={1000}
         onClose={() => setPopup((p) => ({ ...p, open: false }))}
       />
     </div>

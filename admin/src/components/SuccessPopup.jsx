@@ -8,7 +8,7 @@ export default function SuccessPopup({
   title,
   lines = [],
   tone = 'success',
-  autoCloseMs = 3500,
+  autoCloseMs = 1000,
   showOk = false,
   onClose,
 }) {
