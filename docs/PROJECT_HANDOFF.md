@@ -33,7 +33,7 @@ Always pull latest from `cursor/admin-panel-parking-b166` before coding.
 | ALPR / OCR | Python FastAPI + OpenCV + Tesseract (`alpr-service/`) |
 | Database | MySQL database name **`parking`** |
 | Auth | JWT (`admin@parking.local` / `Admin@123`) |
-| Mobile app | **Not started yet** (planned React Native after admin is solid) |
+| Mobile app | Expo React Native in `app/` (member companion — Phase C started) |
 
 ---
 
@@ -75,6 +75,7 @@ Members of a company can have multiple vehicles, but allotment is still FCFS int
 ```text
 ParkingSystem/
   admin/                 # React admin panel
+  app/                   # Expo React Native member app
   backend/               # Express API
   alpr-service/          # Python plate OCR service
   docs/                  # Project docs (this file)
@@ -87,12 +88,33 @@ ParkingSystem/
 ```text
 backend/src/
   db/            schema.sql, init.js, seed.js, pool.js
-  routes/        auth, bases, sessions, vehicles, dashboard, alpr
+  routes/        auth, me, bases, sessions, vehicles, dashboard, alpr
   services/      allotment.js   ← core check-in logic
   middleware/    auth.js (JWT + roles)
   utils/         plates.js, plateMatch.js
   index.js
 ```
+
+### Member app (`app/`)
+
+| Screen | Purpose |
+|---|---|
+| Login | Corporate member JWT login |
+| Current slot | Open session for this member |
+| My vehicles | Mark IN_SERVICE / ACTIVE, claim temp plate |
+| History | Past sessions |
+| Profile | Company info + sign out |
+
+Run: `npm run dev:app` (see `app/README.md`). Demo: `aisha@nexus.local` / `Admin@123`.
+
+Member APIs:
+
+- `GET /api/me/profile`
+- `GET /api/me/vehicles`
+- `PATCH /api/me/vehicles/:id/status`
+- `POST /api/me/vehicles/temp-claim`
+- `GET /api/me/sessions/current`
+- `GET /api/me/sessions`
 
 ### Admin pages
 
@@ -276,6 +298,7 @@ OCR fuzzy correction against known plates:
 - [x] Python ALPR service
 - [x] Socket.io live updates
 - [x] Demo simulate entry
+- [x] Member Expo app (`app/`) + `/api/me/*` routes
 
 ---
 
@@ -283,11 +306,12 @@ OCR fuzzy correction against known plates:
 
 Priority order suggested:
 
-1. **React Native user app**
-   - Member login
-   - My vehicles / mark in-service / temp plate
-   - Current allotted slot screen
-   - History
+1. **React Native user app** — started in `app/`
+   - [x] Member login
+   - [x] My vehicles / mark in-service / temp plate
+   - [x] Current allotted slot screen
+   - [x] History
+   - [ ] Guest plate lookup (optional later)
 2. **Stronger ALPR**
    - Better model (EasyOCR/PaddleOCR/commercial ALPR)
    - Camera gate simulation polish
@@ -310,7 +334,7 @@ Priority order suggested:
 |---|---|
 | A | Backend allotment, schema, ALPR integration |
 | B | Admin UI / live map / webcam UX |
-| C | React Native app |
+| C | React Native app (`app/`) |
 | D | Demo script, seed data, pitch deck |
 
 Shared contracts = this doc + `/api/*` routes + enums in schema.
@@ -385,10 +409,12 @@ Current state:
 - Basements contain multiple company slot pools + general slots
 - Plate scan → DB verify → company FCFS slot OR guest register + general slot
 - Webcam scan page exists at /webcam
-- Mobile React Native app is NOT started yet
+- Member Expo app lives in app/ (npm run dev:app)
+- Member APIs under /api/me/*
 
-Login: admin@parking.local / Admin@123
-Run: npm run setup && npm run dev:api && npm run dev:alpr && npm run dev:admin
+Login: admin@parking.local / Admin@123 (admin web)
+Member: aisha@nexus.local / Admin@123 (mobile)
+Run: npm run setup && npm run dev:api && npm run dev:alpr && npm run dev:admin && npm run dev:app
 
 Do not invent a different architecture. Extend the existing modules.
 Follow PROJECT_HANDOFF.md business rules and folder structure.

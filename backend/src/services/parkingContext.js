@@ -173,10 +173,12 @@ export async function buildParkingContext() {
           }
         : null,
       allotmentRules: [
-        'Registered company vehicles get a free slot from their company pool (FCFS).',
-        'If the company pool is full, overflow goes to GENERAL (B1).',
+        'Registered ACTIVE company vehicles get a free slot from their company pool (FCFS — lowest free slot id).',
+        'If the company pool is full, overflow goes to GENERAL (typically B1).',
         'Unknown / guest plates auto-register and park in GENERAL (B1).',
-        'Prefer the basement with the most free slots in the target pool.',
+        'IN_SERVICE plates are rejected at the gate — use a claimed temp plate (still company pool).',
+        'Never allot into another company\'s reserved bay.',
+        'Assistant navigate recommends only; the gate check-in runs the real allotment.',
       ],
     },
   };

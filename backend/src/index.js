@@ -9,6 +9,7 @@ import sessionsRoutes from './routes/sessions.js';
 import vehiclesRoutes from './routes/vehicles.js';
 import dashboardRoutes from './routes/dashboard.js';
 import alprRoutes from './routes/alpr.js';
+import meRoutes from './routes/me.js';
 import assistantRoutes from './routes/assistant.js';
 import { emitAssistantTips } from './services/assistantTips.js';
 
@@ -46,6 +47,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/me', meRoutes);
 app.use('/api/bases', basesRoutes);
 app.use('/api/sessions', sessionsRoutes);
 app.use('/api/vehicles', vehiclesRoutes);
