@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { BasesAPI, DashboardAPI, SessionsAPI } from '../api';
 
-// Prefer same-origin (Vite proxies /socket.io → API) so remote previews work
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 function SlotCell({ slot }) {
@@ -20,8 +19,8 @@ function SlotCell({ slot }) {
         {slot.status === 'OCCUPIED'
           ? slot.plate_normalized || 'Occupied'
           : slot.vehicle_type === 'CAR'
-            ? 'Car bay'
-            : 'Bike bay'}
+            ? 'Car'
+            : 'Bike'}
       </small>
     </div>
   );
@@ -45,13 +44,11 @@ export default function LiveMap() {
 
   const loadOccupancy = useCallback(async (baseId) => {
     if (!baseId) return;
-    const data = await BasesAPI.occupancy(baseId);
-    setOccupancy(data);
+    setOccupancy(await BasesAPI.occupancy(baseId));
   }, []);
 
   const loadOverview = useCallback(async () => {
-    const data = await DashboardAPI.overview();
-    setOverview(data);
+    setOverview(await DashboardAPI.overview());
   }, []);
 
   const refresh = useCallback(async () => {
@@ -64,32 +61,17 @@ export default function LiveMap() {
   }, [refresh]);
 
   useEffect(() => {
-    if (selectedBaseId) {
-      loadOccupancy(selectedBaseId).catch((err) => setError(err.message));
-    }
+    if (selectedBaseId) loadOccupancy(selectedBaseId).catch((err) => setError(err.message));
   }, [selectedBaseId, loadOccupancy]);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
     socket.on('connect', () => setLive(true));
     socket.on('disconnect', () => setLive(false));
-    socket.on('occupancy.updated', () => {
-      refresh().catch(() => {});
-    });
-    socket.on('session.updated', () => {
-      refresh().catch(() => {});
-    });
+    socket.on('occupancy.updated', () => refresh().catch(() => {}));
+    socket.on('session.updated', () => refresh().catch(() => {}));
     return () => socket.disconnect();
   }, [refresh]);
-
-  const cars = useMemo(
-    () => (occupancy?.slots || []).filter((s) => s.vehicle_type === 'CAR'),
-    [occupancy]
-  );
-  const bikes = useMemo(
-    () => (occupancy?.slots || []).filter((s) => s.vehicle_type === 'BIKE'),
-    [occupancy]
-  );
 
   async function runRandom(forceGeneral = false) {
     setBusy(true);
@@ -99,11 +81,11 @@ export default function LiveMap() {
       const result = await SessionsAPI.randomEntry(forceGeneral);
       if (result.allotted) {
         setMessage(
-          `${result.plateNormalized} → ${result.slot.code} in ${result.base.name} (${result.sessionType})`
+          `${result.plateNormalized} → ${result.slot.code} @ ${result.base.name} (${result.sessionType})`
         );
         setSelectedBaseId(result.base.id);
       } else {
-        setError(result.reason || 'Could not allot slot');
+        setError(result.reason || 'Could not allot');
       }
       await refresh();
     } catch (err) {
@@ -119,8 +101,8 @@ export default function LiveMap() {
     <div className="stack">
       <div className="topbar">
         <div>
-          <h2>Live lot map</h2>
-          <p>Three bases · 50 car + 30 bike slots each · realtime occupancy</p>
+          <h2>Live basement map</h2>
+          <p>One basement · multiple company pools + general · FCFS allotment</p>
         </div>
         <div className="actions">
           <span className="live-pill">
@@ -142,7 +124,7 @@ export default function LiveMap() {
           <strong>{totals.slots ?? '—'}</strong>
         </div>
         <div className="stat">
-          <span>Free now</span>
+          <span>Free</span>
           <strong>{totals.free_slots ?? '—'}</strong>
         </div>
         <div className="stat">
@@ -150,8 +132,8 @@ export default function LiveMap() {
           <strong>{totals.occupied_slots ?? '—'}</strong>
         </div>
         <div className="stat">
-          <span>Active sessions</span>
-          <strong>{totals.active_sessions ?? '—'}</strong>
+          <span>Guest vehicles</span>
+          <strong>{totals.guest_vehicles ?? '—'}</strong>
         </div>
       </div>
 
@@ -165,8 +147,7 @@ export default function LiveMap() {
           >
             {base.name}
             <div style={{ fontSize: '0.78rem', marginTop: 4, opacity: 0.85 }}>
-              {base.base_type} · Car {base.car_free}/{base.car_total} · Bike {base.bike_free}/
-              {base.bike_total}
+              Free {base.free_total}/{base.slot_total}
             </div>
           </button>
         ))}
@@ -176,57 +157,62 @@ export default function LiveMap() {
       {message ? <div className="scan-result success">{message}</div> : null}
 
       <div className="grid-2">
-        <section className="panel">
-          <div className="panel-header">
-            <h3>{occupancy?.base?.name || 'Select a base'}</h3>
-            <span className="badge">{occupancy?.base?.base_type}</span>
-          </div>
-          <p className="muted" style={{ marginTop: 0 }}>
-            {occupancy?.base?.description ||
-              'Registered company plates go to company bases. Everyone else lands in general parking.'}
-          </p>
+        <section className="stack">
+          {(occupancy?.groups || []).map((group) => (
+            <div className="panel" key={group.key}>
+              <div className="panel-header">
+                <h3>
+                  {group.companyName}
+                  <span className="badge" style={{ marginLeft: 8 }}>
+                    {group.ownerType}
+                  </span>
+                </h3>
+                <span className="muted">
+                  Cars {group.cars.filter((s) => s.status === 'FREE').length}/{group.cars.length} ·
+                  Bikes {group.bikes.filter((s) => s.status === 'FREE').length}/{group.bikes.length}
+                </span>
+              </div>
 
-          <div className="slot-section">
-            <h4>
-              <span className="legend-dot" style={{ background: 'var(--car)' }} />
-              Car slots · {occupancy?.summary?.car?.free ?? 0} free /{' '}
-              {occupancy?.summary?.car?.total ?? 0}
-            </h4>
-            <div className="slot-grid">
-              {cars.map((slot) => (
-                <SlotCell key={slot.id} slot={slot} />
-              ))}
-            </div>
-          </div>
+              <div className="slot-section">
+                <h4>
+                  <span className="legend-dot" style={{ background: 'var(--car)' }} />
+                  Car slots
+                </h4>
+                <div className="slot-grid">
+                  {group.cars.map((slot) => (
+                    <SlotCell key={slot.id} slot={slot} />
+                  ))}
+                </div>
+              </div>
 
-          <div className="slot-section">
-            <h4>
-              <span className="legend-dot" style={{ background: 'var(--bike)' }} />
-              Bike slots · {occupancy?.summary?.bike?.free ?? 0} free /{' '}
-              {occupancy?.summary?.bike?.total ?? 0}
-            </h4>
-            <div className="slot-grid">
-              {bikes.map((slot) => (
-                <SlotCell key={slot.id} slot={slot} />
-              ))}
+              <div className="slot-section">
+                <h4>
+                  <span className="legend-dot" style={{ background: 'var(--bike)' }} />
+                  Bike slots
+                </h4>
+                <div className="slot-grid">
+                  {group.bikes.map((slot) => (
+                    <SlotCell key={slot.id} slot={slot} />
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </section>
 
         <aside className="stack">
           <section className="panel">
             <div className="panel-header">
-              <h3>Base snapshot</h3>
+              <h3>Company pools</h3>
             </div>
             <div className="stack">
-              {(overview?.byBase || []).map((b) => (
-                <div key={b.id} className="scan-result">
-                  <strong>{b.name}</strong>
-                  <span className="muted">
-                    {b.base_type} · Occupied {b.occupied}
-                  </span>
+              {(overview?.companyPools || []).map((c) => (
+                <div key={c.id} className="scan-result">
+                  <strong>
+                    {c.name} ({c.code})
+                  </strong>
                   <span>
-                    Cars free {b.car_free}/{b.car_total} · Bikes free {b.bike_free}/{b.bike_total}
+                    Free {c.free_slots}/{c.total_slots} · Occupied {c.occupied_slots}
                   </span>
                 </div>
               ))}
@@ -235,7 +221,7 @@ export default function LiveMap() {
 
           <section className="panel">
             <div className="panel-header">
-              <h3>Recent allotments</h3>
+              <h3>Recent check-ins</h3>
             </div>
             <div className="stack">
               {(overview?.recent || []).slice(0, 8).map((row) => (
@@ -245,7 +231,7 @@ export default function LiveMap() {
                     {row.slot_code || '—'} · {row.base_name}
                   </span>
                   <span className="muted">
-                    {row.vehicle_type} · {row.session_type} · {row.status}
+                    {row.session_type} · {row.company_name || 'Guest/General'}
                   </span>
                 </div>
               ))}

@@ -2,8 +2,9 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth';
 
 const links = [
-  { to: '/', label: 'Live Lot Map' },
-  { to: '/scan', label: 'Plate Scan Desk' },
+  { to: '/', label: 'Live Basement Map' },
+  { to: '/webcam', label: 'Webcam Scan' },
+  { to: '/scan', label: 'Manual Scan Desk' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/vehicles', label: 'Vehicles' },
   { to: '/registry', label: 'Companies & Members' },

@@ -3,12 +3,10 @@ import { normalizePlate } from '../utils/plates.js';
 export async function findRegisteredVehicle(conn, plateNormalized) {
   const [rows] = await conn.query(
     `SELECT v.*, c.name AS company_name, c.code AS company_code,
-            u.id AS member_id, u.full_name AS member_name, u.email AS member_email,
-            b.id AS company_base_id, b.name AS company_base_name, b.code AS company_base_code
+            u.id AS member_id, u.full_name AS member_name, u.email AS member_email, u.role AS member_role
      FROM vehicles v
      LEFT JOIN companies c ON c.id = v.company_id
      LEFT JOIN users u ON u.id = v.owner_user_id
-     LEFT JOIN bases b ON b.company_id = v.company_id AND b.base_type = 'COMPANY' AND b.status = 'ACTIVE'
      WHERE v.plate_normalized = ?
        AND v.status = 'ACTIVE'
        AND v.deleted_at IS NULL
@@ -26,29 +24,117 @@ export async function findOpenSession(conn, plateNormalized) {
   return rows[0] || null;
 }
 
-export async function pickFreeSlot(conn, baseId, vehicleType) {
-  const [rows] = await conn.query(
-    `SELECT * FROM slots
-     WHERE base_id = ? AND vehicle_type = ? AND status = 'FREE'
-     ORDER BY row_no ASC, col_no ASC, id ASC
+/**
+ * First-come-first-serve: lowest free slot id in the matching pool.
+ * Company members use company slots in preferred basement (then any basement).
+ * Guests / unknown use GENERAL slots.
+ */
+export async function pickFreeSlotFCFS(conn, { vehicleType, companyId = null, preferredBaseId = null }) {
+  if (companyId) {
+    if (preferredBaseId) {
+      const [preferred] = await conn.query(
+        `SELECT s.*, b.name AS base_name, b.code AS base_code
+         FROM slots s
+         JOIN bases b ON b.id = s.base_id
+         WHERE s.owner_type = 'COMPANY'
+           AND s.company_id = ?
+           AND s.vehicle_type = ?
+           AND s.status = 'FREE'
+           AND s.base_id = ?
+           AND b.status = 'ACTIVE'
+         ORDER BY s.id ASC
+         LIMIT 1
+         FOR UPDATE`,
+        [companyId, vehicleType, preferredBaseId]
+      );
+      if (preferred[0]) return preferred[0];
+    }
+
+    const [companySlots] = await conn.query(
+      `SELECT s.*, b.name AS base_name, b.code AS base_code
+       FROM slots s
+       JOIN bases b ON b.id = s.base_id
+       WHERE s.owner_type = 'COMPANY'
+         AND s.company_id = ?
+         AND s.vehicle_type = ?
+         AND s.status = 'FREE'
+         AND b.status = 'ACTIVE'
+       ORDER BY s.base_id ASC, s.id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [companyId, vehicleType]
+    );
+    if (companySlots[0]) return companySlots[0];
+  }
+
+  if (preferredBaseId) {
+    const [preferredGeneral] = await conn.query(
+      `SELECT s.*, b.name AS base_name, b.code AS base_code
+       FROM slots s
+       JOIN bases b ON b.id = s.base_id
+       WHERE s.owner_type = 'GENERAL'
+         AND s.company_id IS NULL
+         AND s.vehicle_type = ?
+         AND s.status = 'FREE'
+         AND s.base_id = ?
+         AND b.status = 'ACTIVE'
+       ORDER BY s.id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [vehicleType, preferredBaseId]
+    );
+    if (preferredGeneral[0]) return preferredGeneral[0];
+  }
+
+  const [general] = await conn.query(
+    `SELECT s.*, b.name AS base_name, b.code AS base_code
+     FROM slots s
+     JOIN bases b ON b.id = s.base_id
+     WHERE s.owner_type = 'GENERAL'
+       AND s.company_id IS NULL
+       AND s.vehicle_type = ?
+       AND s.status = 'FREE'
+       AND b.status = 'ACTIVE'
+     ORDER BY s.base_id ASC, s.id ASC
      LIMIT 1
      FOR UPDATE`,
-    [baseId, vehicleType]
+    [vehicleType]
   );
-  return rows[0] || null;
+  return general[0] || null;
 }
 
-export async function getGeneralBase(conn) {
-  const [rows] = await conn.query(
-    `SELECT * FROM bases WHERE base_type = 'GENERAL' AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1`
+async function ensureGuestVehicle(conn, { plateNormalized, plateRaw, vehicleType }) {
+  let vehicle = await findRegisteredVehicle(conn, plateNormalized);
+  if (vehicle) return { vehicle, created: false };
+
+  const [userResult] = await conn.query(
+    `INSERT INTO users (role, company_id, email, full_name, status)
+     VALUES ('GUEST', NULL, ?, ?, 'ACTIVE')`,
+    [`guest_${plateNormalized.toLowerCase()}@parking.local`, `Guest ${plateNormalized}`]
   );
-  return rows[0] || null;
+
+  const [vehicleResult] = await conn.query(
+    `INSERT INTO vehicles
+      (company_id, owner_user_id, plate_raw, plate_normalized, vehicle_type, is_guest, status)
+     VALUES (NULL, ?, ?, ?, ?, 1, 'ACTIVE')`,
+    [userResult.insertId, plateRaw || plateNormalized, plateNormalized, vehicleType]
+  );
+
+  await conn.query(
+    `INSERT INTO vehicle_authorizations
+      (user_id, vehicle_id, auth_type, status, valid_from)
+     VALUES (?, ?, 'GUEST', 'ACTIVE', NOW())`,
+    [userResult.insertId, vehicleResult.insertId]
+  );
+
+  vehicle = await findRegisteredVehicle(conn, plateNormalized);
+  return { vehicle, created: true };
 }
 
 /**
- * Core entry flow:
- * - registered company vehicle -> allot from that company's base
- * - unknown vehicle -> allot from general base
+ * Webcam / gate entry:
+ * 1) registered company vehicle → FCFS company slot in basement pools
+ * 2) unknown plate → auto-register guest + vehicle → FCFS general slot
  */
 export async function processEntryScan(conn, payload) {
   const plateNormalized = normalizePlate(payload.plate);
@@ -66,8 +152,11 @@ export async function processEntryScan(conn, payload) {
   }
 
   const confidence = Number(payload.confidence ?? 0.92);
+  const source = payload.source || 'WEBCAM';
+  const preferredBaseId = payload.baseId ? Number(payload.baseId) : null;
   const idempotencyKey =
-    payload.idempotencyKey || `entry-${plateNormalized}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    payload.idempotencyKey ||
+    `entry-${plateNormalized}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const [existingEvent] = await conn.query(
     `SELECT * FROM alpr_events WHERE idempotency_key = ? LIMIT 1`,
@@ -83,53 +172,82 @@ export async function processEntryScan(conn, payload) {
 
   const open = await findOpenSession(conn, plateNormalized);
   if (open) {
-    const err = new Error(`Vehicle ${plateNormalized} already has an active session (#${open.id})`);
+    const err = new Error(`Vehicle ${plateNormalized} already checked in (session #${open.id})`);
     err.status = 409;
     throw err;
   }
 
   const [eventResult] = await conn.query(
     `INSERT INTO alpr_events
-      (plate_raw, plate_normalized, vehicle_type_hint, confidence, lane_type, processing_status, idempotency_key, observed_at)
-     VALUES (?, ?, ?, ?, 'ENTRY', 'RECEIVED', ?, NOW())`,
-    [payload.plate, plateNormalized, vehicleType, confidence, idempotencyKey]
+      (base_id, plate_raw, plate_normalized, vehicle_type_hint, confidence, lane_type, source,
+       processing_status, idempotency_key, observed_at, image_path)
+     VALUES (?, ?, ?, ?, ?, 'ENTRY', ?, 'RECEIVED', ?, NOW(), ?)`,
+    [
+      preferredBaseId,
+      payload.plate,
+      plateNormalized,
+      vehicleType,
+      confidence,
+      source,
+      idempotencyKey,
+      payload.imagePath || null,
+    ]
   );
   const eventId = eventResult.insertId;
 
-  const vehicle = await findRegisteredVehicle(conn, plateNormalized);
-  let base;
+  let vehicle = await findRegisteredVehicle(conn, plateNormalized);
+  let guestCreated = false;
   let sessionType;
   let allotmentNote;
+  let targetCompanyId = null;
 
-  if (vehicle && vehicle.company_base_id) {
-    const [bases] = await conn.query(`SELECT * FROM bases WHERE id = ? LIMIT 1`, [vehicle.company_base_id]);
-    base = bases[0];
+  if (vehicle && vehicle.company_id && !vehicle.is_guest) {
     sessionType = 'COMPANY';
-    allotmentNote = `Registered ${vehicle.company_name} vehicle → company base`;
+    targetCompanyId = vehicle.company_id;
+    allotmentNote = `Registered ${vehicle.company_name} member → company pool (FCFS)`;
   } else {
-    base = await getGeneralBase(conn);
-    sessionType = 'GENERAL';
-    allotmentNote = vehicle
-      ? 'Registered vehicle without company base → general parking'
-      : 'Unregistered plate → general parking';
-  }
-
-  if (!base) {
-    const err = new Error('No parking base available');
-    err.status = 500;
-    throw err;
+    if (!vehicle) {
+      const ensured = await ensureGuestVehicle(conn, {
+        plateNormalized,
+        plateRaw: payload.plate,
+        vehicleType,
+      });
+      vehicle = ensured.vehicle;
+      guestCreated = ensured.created;
+    }
+    sessionType = 'GUEST';
+    allotmentNote = guestCreated
+      ? 'New guest registered → general pool (FCFS)'
+      : 'Guest / unregistered → general pool (FCFS)';
   }
 
   const resolvedType = vehicle?.vehicle_type || vehicleType;
-  const slot = await pickFreeSlot(conn, base.id, resolvedType);
+  let slot = await pickFreeSlotFCFS(conn, {
+    vehicleType: resolvedType,
+    companyId: targetCompanyId,
+    preferredBaseId,
+  });
+
+  // Company pool full → overflow into general
+  if (!slot && targetCompanyId) {
+    slot = await pickFreeSlotFCFS(conn, {
+      vehicleType: resolvedType,
+      companyId: null,
+      preferredBaseId,
+    });
+    if (slot) {
+      sessionType = 'GENERAL';
+      allotmentNote = `Company pool full → overflow general slot (FCFS)`;
+    }
+  }
 
   if (!slot) {
     await conn.query(
       `INSERT INTO incidents (base_id, type, severity, status, message, payload_json)
        VALUES (?, 'LOT_FULL', 'HIGH', 'OPEN', ?, ?)`,
       [
-        base.id,
-        `${base.name} has no free ${resolvedType} slots`,
+        preferredBaseId,
+        `No free ${resolvedType} slots available`,
         JSON.stringify({ plate: plateNormalized, vehicleType: resolvedType }),
       ]
     );
@@ -140,28 +258,26 @@ export async function processEntryScan(conn, payload) {
          status, entry_event_id, denial_reason, is_open, started_at, allotment_note)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'DENIED', ?, ?, NULL, NOW(), ?)`,
       [
-        base.id,
+        preferredBaseId || 1,
         plateNormalized,
         vehicle?.id || null,
-        vehicle?.member_id || null,
+        vehicle?.member_id || vehicle?.owner_user_id || null,
         vehicle?.company_id || null,
         resolvedType,
         sessionType,
         eventId,
-        `No free ${resolvedType} slots in ${base.name}`,
+        `No free ${resolvedType} slots`,
         allotmentNote,
       ]
     );
-
     await conn.query(`UPDATE alpr_events SET processing_status = 'PROCESSED' WHERE id = ?`, [eventId]);
-
     return {
       allotted: false,
-      reason: `No free ${resolvedType} slots in ${base.name}`,
+      guestCreated,
+      reason: `No free ${resolvedType} slots`,
       sessionId: denied.insertId,
-      base,
-      vehicle,
       plateNormalized,
+      vehicle,
     };
   }
 
@@ -171,11 +287,11 @@ export async function processEntryScan(conn, payload) {
        status, entry_event_id, is_open, started_at, allotted_at, allotment_note)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ALLOTTED', ?, 1, NOW(), NOW(), ?)`,
     [
-      base.id,
+      slot.base_id,
       slot.id,
       plateNormalized,
       vehicle?.id || null,
-      vehicle?.member_id || null,
+      vehicle?.member_id || vehicle?.owner_user_id || null,
       vehicle?.company_id || null,
       resolvedType,
       sessionType,
@@ -191,16 +307,19 @@ export async function processEntryScan(conn, payload) {
      VALUES (?, ?, 'ENGINE', ?, 1, NOW())`,
     [sessionResult.insertId, slot.id, allotmentNote]
   );
-  await conn.query(`UPDATE alpr_events SET processing_status = 'PROCESSED' WHERE id = ?`, [eventId]);
+  await conn.query(`UPDATE alpr_events SET processing_status = 'PROCESSED', base_id = ? WHERE id = ?`, [
+    slot.base_id,
+    eventId,
+  ]);
 
-  if (!vehicle) {
+  if (guestCreated) {
     await conn.query(
       `INSERT INTO incidents (base_id, session_id, type, severity, status, message, payload_json)
-       VALUES (?, ?, 'UNRECOGNIZED_PLATE', 'LOW', 'OPEN', ?, ?)`,
+       VALUES (?, ?, 'GUEST_REGISTERED', 'LOW', 'RESOLVED', ?, ?)`,
       [
-        base.id,
+        slot.base_id,
         sessionResult.insertId,
-        `Unregistered plate ${plateNormalized} allotted in general parking`,
+        `Guest registered for plate ${plateNormalized}`,
         JSON.stringify({ plate: plateNormalized, slot: slot.code }),
       ]
     );
@@ -212,6 +331,7 @@ export async function processEntryScan(conn, payload) {
 
   return {
     allotted: true,
+    guestCreated,
     plateNormalized,
     sessionType,
     allotmentNote,
@@ -220,20 +340,22 @@ export async function processEntryScan(conn, payload) {
           id: vehicle.id,
           plate: vehicle.plate_raw,
           type: vehicle.vehicle_type,
-          company: vehicle.company_name,
-          member: vehicle.member_name,
+          company: vehicle.company_name || null,
+          member: vehicle.member_name || vehicle.full_name || null,
+          isGuest: Boolean(vehicle.is_guest),
         }
       : null,
     base: {
-      id: base.id,
-      name: base.name,
-      code: base.code,
-      type: base.base_type,
+      id: slot.base_id,
+      name: slot.base_name,
+      code: slot.base_code,
     },
     slot: {
       id: slot.id,
       code: slot.code,
       vehicleType: slot.vehicle_type,
+      ownerType: slot.owner_type,
+      companyId: slot.company_id,
       row: slot.row_no,
       col: slot.col_no,
     },
@@ -245,19 +367,29 @@ export async function processExitScan(conn, payload) {
   const plateNormalized = normalizePlate(payload.plate);
   const open = await findOpenSession(conn, plateNormalized);
   if (!open) {
-    const err = new Error(`No active session for ${plateNormalized}`);
+    const err = new Error(`No active check-in for ${plateNormalized}`);
     err.status = 404;
     throw err;
   }
 
   const idempotencyKey =
-    payload.idempotencyKey || `exit-${plateNormalized}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    payload.idempotencyKey ||
+    `exit-${plateNormalized}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const [eventResult] = await conn.query(
     `INSERT INTO alpr_events
-      (plate_raw, plate_normalized, vehicle_type_hint, confidence, lane_type, processing_status, idempotency_key, observed_at)
-     VALUES (?, ?, ?, ?, 'EXIT', 'PROCESSED', ?, NOW())`,
-    [payload.plate, plateNormalized, open.vehicle_type, Number(payload.confidence ?? 0.93), idempotencyKey]
+      (base_id, plate_raw, plate_normalized, vehicle_type_hint, confidence, lane_type, source,
+       processing_status, idempotency_key, observed_at)
+     VALUES (?, ?, ?, ?, ?, 'EXIT', ?, 'PROCESSED', ?, NOW())`,
+    [
+      open.base_id,
+      payload.plate,
+      plateNormalized,
+      open.vehicle_type,
+      Number(payload.confidence ?? 0.93),
+      payload.source || 'WEBCAM',
+      idempotencyKey,
+    ]
   );
 
   if (open.slot_id) {

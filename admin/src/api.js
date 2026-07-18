@@ -87,3 +87,21 @@ export const VehiclesAPI = {
       body: JSON.stringify({ status }),
     }),
 };
+
+export const AlprAPI = {
+  scan: (payload) =>
+    api('/api/alpr/scan', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  checkIn: (payload) =>
+    api('/api/alpr/check-in', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  checkOut: (payload) =>
+    api('/api/alpr/check-out', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};

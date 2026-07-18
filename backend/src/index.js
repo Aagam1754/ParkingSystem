@@ -8,6 +8,7 @@ import basesRoutes from './routes/bases.js';
 import sessionsRoutes from './routes/sessions.js';
 import vehiclesRoutes from './routes/vehicles.js';
 import dashboardRoutes from './routes/dashboard.js';
+import alprRoutes from './routes/alpr.js';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ app.use('/api/bases', basesRoutes);
 app.use('/api/sessions', sessionsRoutes);
 app.use('/api/vehicles', vehiclesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/alpr', alprRoutes);
 
 io.on('connection', (socket) => {
   socket.emit('connected', { message: 'ParkAI live feed connected' });

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './auth';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import LiveMap from './pages/LiveMap';
+import WebcamScan from './pages/WebcamScan';
 import ScanDesk from './pages/ScanDesk';
 import Sessions from './pages/Sessions';
 import Vehicles from './pages/Vehicles';
@@ -36,6 +37,7 @@ export default function App() {
             }
           >
             <Route index element={<LiveMap />} />
+            <Route path="webcam" element={<WebcamScan />} />
             <Route path="scan" element={<ScanDesk />} />
             <Route path="sessions" element={<Sessions />} />
             <Route path="vehicles" element={<Vehicles />} />
