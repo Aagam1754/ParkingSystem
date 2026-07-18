@@ -7,7 +7,11 @@ import { acceptWebcamPlate } from '../utils/plateGate.js';
 import { emitAssistantTips } from '../services/assistantTips.js';
 
 const router = Router();
-const PYTHON_ALPR_URL = process.env.PYTHON_ALPR_URL || 'http://127.0.0.1:5001';
+const PYTHON_ALPR_URL =
+  process.env.PYTHON_ALPR_URL ||
+  (process.env.PYTHON_ALPR_HOSTPORT
+    ? `http://${process.env.PYTHON_ALPR_HOSTPORT}`
+    : 'http://127.0.0.1:5001');
 
 function emitLive(req, payload, eventName = 'session.updated') {
   const io = req.app.get('io');

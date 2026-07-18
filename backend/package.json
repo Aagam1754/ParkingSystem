@@ -7,7 +7,8 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "db:init": "node src/db/init.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "db:ensure": "node src/db/ensure.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
