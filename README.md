@@ -21,20 +21,22 @@ Iscon, Ambli Rd, behind Maruti Suzuki Arena, Ambli, Ahmedabad, Gujarat 380058
 
 Same company slots share the same color on the map.
 
-## Screens
+## Stack
 
-<<<<<<< HEAD
 - Admin: React (Vite)
 - Member app: React Native (Expo) in `app/`
 - API: Node.js + Express + Socket.io
 - ALPR: Python FastAPI + OpenCV + Tesseract
 - DB: MySQL database `parking` (Laragon-compatible)
-=======
+
+## Screens
+
 - **Basement Map** — whole basement visual by company color
 - **Check-in Gate** — webcam auto-scan + success popup
 - **Check-out Gate** — webcam auto-scan exit
 - **User Display** — realtime allotted slot blink + scanned plate + success popup
->>>>>>> 16c90f4d27b47039843594a3cbff11241bcd824b
+- **Smart Assistant** — live parking Q&A / tips (admin)
+- **Member app** — current slot, vehicles, in-service / temp plate, history
 
 ## Run
 
@@ -51,15 +53,11 @@ npm run dev:app
 ```
 
 - Admin: http://localhost:5173
-<<<<<<< HEAD
 - API: http://localhost:4000
 - ALPR: http://localhost:5001
 - Member app: Expo (`npm run dev:app`) — see `app/README.md`
 - Admin login: `admin@parking.local` / `Admin@123`
-- Member login: `aisha@nexus.local` / `Admin@123`
-=======
-- Login: `admin@parking.local` / `Admin@123`
->>>>>>> 16c90f4d27b47039843594a3cbff11241bcd824b
+- Member login: `priya@yorkie.local` / `Admin@123`
 
 ## York IE demo plates
 
