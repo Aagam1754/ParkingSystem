@@ -54,7 +54,21 @@ Sample plate images: `docs/sample-plates/`
 
 Unknown plate → auto guest register → **Basement 1 General**.
 
+## Deploy on Render (live)
+
+See **`docs/RENDER.md`** for the full guide.
+
+Quick path:
+
+1. Create a free/external **MySQL** database named `parking`
+2. Push this repo to GitHub
+3. Render Dashboard → **New → Blueprint** → select repo (`render.yaml`)
+4. Fill `DB_HOST`, `DB_USER`, `DB_PASSWORD`, …
+5. Run `npm run db:init` + `npm run db:seed` against that MySQL once
+6. Open `https://parkingsystem-api.onrender.com`
+
 ## Docs
 
+- `docs/RENDER.md` — live deploy on Render
 - `docs/BLUEPRINT.md`
 - `docs/PROJECT_HANDOFF.md`

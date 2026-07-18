@@ -7,7 +7,19 @@ import { acceptWebcamPlate } from '../utils/plateGate.js';
 import { emitAssistantTips } from '../services/assistantTips.js';
 
 const router = Router();
-const PYTHON_ALPR_URL = process.env.PYTHON_ALPR_URL || 'http://127.0.0.1:5001';
+
+function getAlprUrl() {
+  if (process.env.PYTHON_ALPR_URL) {
+    return String(process.env.PYTHON_ALPR_URL).replace(/\/$/, '');
+  }
+  // Render blueprint can inject host only via fromService.property=host
+  if (process.env.PYTHON_ALPR_HOST) {
+    const host = String(process.env.PYTHON_ALPR_HOST).replace(/\/$/, '');
+    if (host.startsWith('http://') || host.startsWith('https://')) return host;
+    return `https://${host}`;
+  }
+  return 'http://127.0.0.1:5001';
+}
 
 function emitLive(req, payload, eventName = 'session.updated') {
   const io = req.app.get('io');
@@ -34,7 +46,7 @@ async function runOcr(imageBase64, knownPlates) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetch(`${PYTHON_ALPR_URL}/scan`, {
+    const response = await fetch(`${getAlprUrl()}/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

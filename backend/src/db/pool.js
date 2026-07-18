@@ -3,6 +3,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const useSsl =
+  String(process.env.DB_SSL || '').toLowerCase() === 'true' ||
+  String(process.env.DB_SSL || '') === '1';
+
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: Number(process.env.DB_PORT || 3306),
@@ -12,6 +16,7 @@ export const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,
+  ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
 export async function query(sql, params) {

@@ -1,0 +1,65 @@
+# ParkLane on Render — Blueprint
+# 1) Create a free/external MySQL first (see docs/RENDER.md)
+# 2) In Render Dashboard → New → Blueprint → select this repo
+# 3) Fill DB_* env vars, then Deploy
+
+services:
+  # Node API + built React admin (one public URL)
+  - type: web
+    name: parkingsystem-api
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: |
+      npm install --prefix backend
+      npm install --prefix admin
+      npm run build --prefix admin
+    startCommand: npm start --prefix backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_ADMIN
+        value: "true"
+      - key: CLIENT_ORIGIN
+        value: "*"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: parking
+      - key: DB_SSL
+        value: "true"
+      - key: PYTHON_ALPR_HOST
+        fromService:
+          name: parkingsystem-alpr
+          type: web
+          property: host
+      # Optional assistant / TTS
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+  # Python ALPR (OpenCV + Tesseract)
+  - type: web
+    name: parkingsystem-alpr
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: alpr-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: OCR_TIMEOUT_SEC
+        value: "4"

@@ -1,4 +1,6 @@
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -14,6 +16,7 @@ import { emitAssistantTips } from './services/assistantTips.js';
 
 dotenv.config();
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
 const allowOrigin =
@@ -60,7 +63,23 @@ io.on('connection', (socket) => {
   });
 });
 
+// Production / Render: serve built React admin from the same origin
+const serveAdmin =
+  String(process.env.SERVE_ADMIN || '').toLowerCase() === 'true' ||
+  String(process.env.SERVE_ADMIN || '') === '1';
+if (serveAdmin) {
+  const adminDist = path.resolve(__dirname, '../../admin/dist');
+  app.use(express.static(adminDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
+    return res.sendFile(path.join(adminDist, 'index.html'), (err) => {
+      if (err) next();
+    });
+  });
+}
+
 const port = Number(process.env.PORT || 4000);
 server.listen(port, '0.0.0.0', () => {
   console.log(`Parking API listening on http://0.0.0.0:${port}`);
+  if (serveAdmin) console.log(`Serving admin UI from admin/dist (SERVE_ADMIN=true)`);
 });
