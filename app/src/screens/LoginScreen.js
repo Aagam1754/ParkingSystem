@@ -10,11 +10,18 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
+import { API_URL } from '../config';
 import { colors, spacing } from '../theme';
+
+const DEMO_ACCOUNTS = [
+  { email: 'priya@yorkie.local', label: 'York IE · Priya' },
+  { email: 'aisha@nexus.local', label: 'Nexus · Aisha' },
+  { email: 'meera@orbit.local', label: 'Orbit · Meera' },
+];
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('aisha@nexus.local');
+  const [email, setEmail] = useState('priya@yorkie.local');
   const [password, setPassword] = useState('Admin@123');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,7 +49,8 @@ export default function LoginScreen() {
           <Text style={styles.markText}>PL</Text>
         </View>
         <Text style={styles.brand}>ParkLane</Text>
-        <Text style={styles.sub}>Member parking companion</Text>
+        <Text style={styles.sub}>Eastface member companion</Text>
+        <Text style={styles.apiHint}>API · {API_URL}</Text>
 
         <Text style={styles.label}>Email</Text>
         <TextInput
@@ -80,7 +88,21 @@ export default function LoginScreen() {
           )}
         </Pressable>
 
-        <Text style={styles.hint}>Demo: aisha@nexus.local / Admin@123</Text>
+        <Text style={styles.demoTitle}>Quick demo accounts (password Admin@123)</Text>
+        <View style={styles.demoRow}>
+          {DEMO_ACCOUNTS.map((a) => (
+            <Pressable
+              key={a.email}
+              style={styles.demoChip}
+              onPress={() => {
+                setEmail(a.email);
+                setPassword('Admin@123');
+              }}
+            >
+              <Text style={styles.demoChipText}>{a.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -132,7 +154,11 @@ const styles = StyleSheet.create({
   },
   sub: {
     color: colors.muted,
-    marginBottom: spacing.md,
+  },
+  apiHint: {
+    color: colors.muted,
+    fontSize: 11,
+    marginBottom: spacing.sm,
   },
   label: {
     color: colors.muted,
@@ -165,10 +191,19 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: 4,
   },
-  hint: {
+  demoTitle: {
     color: colors.muted,
     fontSize: 12,
-    textAlign: 'center',
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
   },
+  demoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  demoChip: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.bg2,
+  },
+  demoChipText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
 });

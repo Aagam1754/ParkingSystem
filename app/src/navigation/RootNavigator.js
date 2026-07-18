@@ -53,10 +53,18 @@ function MainTabs() {
       <Tab.Screen
         name="Vehicles"
         component={VehiclesScreen}
-        options={{ title: 'My vehicles' }}
+        options={{ title: 'My vehicles', tabBarLabel: 'Vehicles' }}
       />
-      <Tab.Screen name="History" component={HistoryScreen} options={{ title: 'History' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+      <Tab.Screen
+        name="History"
+        component={HistoryScreen}
+        options={{ title: 'Session history', tabBarLabel: 'History' }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ title: 'Profile', tabBarLabel: 'Profile' }}
+      />
     </Tab.Navigator>
   );
 }

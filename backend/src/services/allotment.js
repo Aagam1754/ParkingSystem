@@ -196,6 +196,35 @@ export async function processEntryScan(conn, payload) {
   const eventId = eventResult.insertId;
 
   let vehicle = await findRegisteredVehicle(conn, plateNormalized);
+
+  // Registered but not ACTIVE (e.g. IN_SERVICE) must not fall through to guest auto-register
+  if (!vehicle) {
+    const [nonActive] = await conn.query(
+      `SELECT id, status, is_guest FROM vehicles
+       WHERE plate_normalized = ? AND deleted_at IS NULL LIMIT 1`,
+      [plateNormalized]
+    );
+    if (nonActive[0]?.status === 'IN_SERVICE') {
+      const err = new Error(
+        `Vehicle ${plateNormalized} is marked IN_SERVICE. Use your claimed temp plate at the gate, or mark this vehicle ACTIVE again in the member app.`
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (nonActive[0]?.status === 'BLOCKED') {
+      const err = new Error(`Vehicle ${plateNormalized} is blocked and cannot enter`);
+      err.status = 403;
+      throw err;
+    }
+    if (nonActive[0] && nonActive[0].status !== 'ACTIVE') {
+      const err = new Error(
+        `Vehicle ${plateNormalized} is ${nonActive[0].status} and cannot check in`
+      );
+      err.status = 409;
+      throw err;
+    }
+  }
+
   let guestCreated = false;
   let sessionType;
   let allotmentNote;

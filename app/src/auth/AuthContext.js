@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AuthAPI, MeAPI } from '../api/endpoints';
-import { getToken, setToken } from '../api/client';
+import { getToken, onAuthInvalid, setToken } from '../api/client';
 
 const AuthContext = createContext(null);
 
@@ -10,6 +10,12 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const clearSession = useCallback(async () => {
+    await setToken(null);
+    setUser(null);
+    setProfile(null);
+  }, []);
 
   const refreshProfile = useCallback(async () => {
     const p = await MeAPI.profile();
@@ -25,6 +31,13 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    return onAuthInvalid(() => {
+      setUser(null);
+      setProfile(null);
+    });
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -32,7 +45,7 @@ export function AuthProvider({ children }) {
         if (!token) return;
         const me = await AuthAPI.me();
         if (!MEMBER_ROLES.has(me.role)) {
-          await setToken(null);
+          await clearSession();
           return;
         }
         if (!cancelled) {
@@ -41,7 +54,7 @@ export function AuthProvider({ children }) {
           if (!cancelled) setProfile(p);
         }
       } catch {
-        await setToken(null);
+        await clearSession();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,7 +62,7 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clearSession]);
 
   const login = useCallback(async (email, password) => {
     const data = await AuthAPI.login(email, password);
@@ -64,14 +77,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await setToken(null);
-    setUser(null);
-    setProfile(null);
-  }, []);
+    await clearSession();
+  }, [clearSession]);
 
   const value = useMemo(
-    () => ({ user, profile, loading, login, logout, refreshProfile }),
-    [user, profile, loading, login, logout, refreshProfile]
+    () => ({ user, profile, loading, login, logout, refreshProfile, clearSession }),
+    [user, profile, loading, login, logout, refreshProfile, clearSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -29,6 +29,7 @@ export default function VehiclesScreen() {
   const [model, setModel] = useState('');
   const [claimError, setClaimError] = useState('');
   const [claimBusy, setClaimBusy] = useState(false);
+  const [info, setInfo] = useState('');
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -54,8 +55,14 @@ export default function VehiclesScreen() {
     const next = vehicle.status === 'IN_SERVICE' ? 'ACTIVE' : 'IN_SERVICE';
     setBusyId(vehicle.id);
     setError('');
+    setInfo('');
     try {
       await MeAPI.setVehicleStatus(vehicle.id, next);
+      if (next === 'IN_SERVICE') {
+        setInfo(
+          `${vehicle.plate_normalized} is IN_SERVICE — gate will reject this plate. Claim a temp plate for company-pool entry.`
+        );
+      }
       await load(true);
     } catch (err) {
       setError(err.message);
@@ -78,7 +85,7 @@ export default function VehiclesScreen() {
     setClaimBusy(true);
     setClaimError('');
     try {
-      await MeAPI.tempClaim({
+      const created = await MeAPI.tempClaim({
         plate: plate.trim(),
         vehicleType,
         make: make.trim() || undefined,
@@ -86,6 +93,7 @@ export default function VehiclesScreen() {
         replacesVehicleId: replacesId,
       });
       setClaimOpen(false);
+      setInfo(created.hint || `Temp plate ${created.plate_normalized} registered for company pool.`);
       await load(true);
     } catch (err) {
       setClaimError(err.message);
@@ -94,7 +102,19 @@ export default function VehiclesScreen() {
     }
   }
 
-  const inServiceCount = vehicles.filter((v) => v.status === 'IN_SERVICE').length;
+  async function retireTemp(vehicle) {
+    setBusyId(vehicle.id);
+    setError('');
+    try {
+      await MeAPI.retireTemp(vehicle.id);
+      setInfo(`Retired temp plate ${vehicle.plate_normalized}`);
+      await load(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -119,65 +139,90 @@ export default function VehiclesScreen() {
       >
         <Text style={styles.title}>My vehicles</Text>
         <Text style={styles.sub}>
-          Mark a car in service, then claim a temporary plate for company-pool allotment.
+          Same registry the gate uses: ACTIVE company plates → company FCFS pool. IN_SERVICE → use a
+          claimed temp plate (still company pool).
         </Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {info ? <Text style={styles.info}>{info}</Text> : null}
 
-        {vehicles.map((v) => (
-          <View key={v.id} style={styles.card}>
-            <View style={styles.cardTop}>
-              <Text style={styles.plate}>{v.plate_normalized || v.plate_raw}</Text>
-              <View
-                style={[
-                  styles.badge,
-                  v.status === 'IN_SERVICE' && styles.badgeWarn,
-                  v.status === 'ACTIVE' && styles.badgeOk,
-                ]}
-              >
-                <Text style={styles.badgeText}>{v.status}</Text>
+        {vehicles.map((v) => {
+          const isTemp = v.auth_type === 'TEMP_SERVICE';
+          return (
+            <View key={v.id} style={styles.card}>
+              <View style={styles.cardTop}>
+                <Text style={styles.plate}>{v.plate_normalized || v.plate_raw}</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    v.status === 'IN_SERVICE' && styles.badgeWarn,
+                    v.status === 'ACTIVE' && styles.badgeOk,
+                  ]}
+                >
+                  <Text style={styles.badgeText}>{v.status}</Text>
+                </View>
               </View>
-            </View>
-            <Text style={styles.meta}>
-              {v.vehicle_type}
-              {v.make ? ` · ${v.make}` : ''}
-              {v.model ? ` ${v.model}` : ''}
-              {v.company_name ? ` · ${v.company_name}` : ''}
-            </Text>
-            {v.active_session_id ? (
-              <Text style={styles.parked}>Currently parked</Text>
-            ) : null}
 
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.actionBtn}
-                onPress={() => toggleStatus(v)}
-                disabled={busyId === v.id || v.status === 'BLOCKED'}
-              >
-                {busyId === v.id ? (
-                  <ActivityIndicator color={colors.bg0} />
-                ) : (
-                  <Text style={styles.actionBtnText}>
-                    {v.status === 'IN_SERVICE' ? 'Mark active' : 'Mark in service'}
-                  </Text>
-                )}
-              </Pressable>
+              <Text style={styles.meta}>
+                {v.vehicle_type}
+                {v.make ? ` · ${v.make}` : ''}
+                {v.model ? ` ${v.model}` : ''}
+                {v.company_name ? ` · ${v.company_name}` : ''}
+              </Text>
+              <Text style={styles.meta}>Auth · {v.auth_type || 'OWNED'}</Text>
+
+              {v.active_session_id ? (
+                <Text style={styles.parked}>
+                  Parked · {v.active_slot_code || 'slot'} ({v.active_base_code || '—'}) ·{' '}
+                  {v.active_session_type || 'OPEN'}
+                </Text>
+              ) : null}
 
               {v.status === 'IN_SERVICE' ? (
-                <Pressable style={styles.outlineBtn} onPress={() => openClaim(v)}>
-                  <Text style={styles.outlineBtnText}>Claim temp plate</Text>
-                </Pressable>
+                <Text style={styles.warnLine}>
+                  Gate will reject this plate until you mark it ACTIVE again.
+                </Text>
               ) : null}
+
+              <View style={styles.actions}>
+                {!isTemp ? (
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => toggleStatus(v)}
+                    disabled={busyId === v.id || v.status === 'BLOCKED'}
+                  >
+                    {busyId === v.id ? (
+                      <ActivityIndicator color={colors.bg0} />
+                    ) : (
+                      <Text style={styles.actionBtnText}>
+                        {v.status === 'IN_SERVICE' ? 'Mark ACTIVE' : 'Mark IN_SERVICE'}
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : null}
+
+                {v.status === 'IN_SERVICE' && !isTemp ? (
+                  <Pressable style={styles.outlineBtn} onPress={() => openClaim(v)}>
+                    <Text style={styles.outlineBtnText}>Claim temp plate</Text>
+                  </Pressable>
+                ) : null}
+
+                {isTemp ? (
+                  <Pressable
+                    style={styles.outlineBtn}
+                    onPress={() => retireTemp(v)}
+                    disabled={busyId === v.id}
+                  >
+                    <Text style={styles.outlineBtnText}>Retire temp plate</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
 
         {!vehicles.length ? (
           <Text style={styles.muted}>No vehicles linked to your account.</Text>
-        ) : null}
-
-        {inServiceCount === 0 ? (
-          <Text style={styles.hint}>Tip: set a vehicle to IN_SERVICE to unlock temp plate claim.</Text>
         ) : null}
       </ScrollView>
 
@@ -185,7 +230,10 @@ export default function VehiclesScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Claim temp plate</Text>
-            <Text style={styles.sub}>Registers an alternate vehicle under your company.</Text>
+            <Text style={styles.sub}>
+              Registers an ACTIVE company vehicle under you (TEMP_SERVICE). Gate allotment uses the
+              same FCFS company pool as your normal plate.
+            </Text>
 
             <Text style={styles.label}>Plate</Text>
             <TextInput
@@ -193,7 +241,7 @@ export default function VehiclesScreen() {
               autoCapitalize="characters"
               value={plate}
               onChangeText={setPlate}
-              placeholder="MH12TEMP99"
+              placeholder="GJ01TEMP01"
               placeholderTextColor={colors.muted}
             />
 
@@ -260,10 +308,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: { color: colors.ink, fontSize: 26, fontWeight: '800' },
-  sub: { color: colors.muted, marginBottom: 4 },
+  sub: { color: colors.muted, marginBottom: 4, lineHeight: 20 },
   error: { color: colors.danger },
+  info: { color: colors.accent2, lineHeight: 20 },
   muted: { color: colors.muted },
-  hint: { color: colors.muted, fontSize: 13, marginTop: 8 },
   card: {
     backgroundColor: colors.bg1,
     borderRadius: 18,
@@ -289,6 +337,7 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.ink, fontSize: 11, fontWeight: '700' },
   meta: { color: colors.muted },
   parked: { color: colors.accent2, fontWeight: '600' },
+  warnLine: { color: colors.warn, fontSize: 13 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 },
   actionBtn: {
     backgroundColor: colors.accent,

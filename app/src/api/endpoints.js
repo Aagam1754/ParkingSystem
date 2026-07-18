@@ -11,6 +11,7 @@ export const AuthAPI = {
 
 export const MeAPI = {
   profile: () => api('/api/me/profile'),
+  overview: () => api('/api/me/overview'),
   vehicles: () => api('/api/me/vehicles'),
   setVehicleStatus: (id, status) =>
     api(`/api/me/vehicles/${id}/status`, {
@@ -22,6 +23,17 @@ export const MeAPI = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  retireTemp: (id) =>
+    api(`/api/me/vehicles/${id}/retire-temp`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   currentSession: () => api('/api/me/sessions/current'),
-  sessions: (limit = 50) => api(`/api/me/sessions?limit=${limit}`),
+  sessions: (opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.status) params.set('status', opts.status);
+    const q = params.toString();
+    return api(`/api/me/sessions${q ? `?${q}` : ''}`);
+  },
 };

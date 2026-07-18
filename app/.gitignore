@@ -11,3 +11,4 @@ npm-debug.*
 web-build/
 .env
 .env.local
+expo-qr.png

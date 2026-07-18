@@ -44,6 +44,8 @@ export default function ProfileScreen() {
     );
   }
 
+  const accent = profile.companyColor || colors.accent;
+
   return (
     <ScrollView
       style={styles.root}
@@ -52,7 +54,7 @@ export default function ProfileScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.accent} />
       }
     >
-      <View style={styles.avatar}>
+      <View style={[styles.avatar, { backgroundColor: accent }]}>
         <Text style={styles.avatarText}>
           {(profile.fullName || '?')
             .split(' ')
@@ -68,12 +70,19 @@ export default function ProfileScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.card}>
-        <Row label="Role" value={profile.role} />
+        <Row label="Building" value={profile.buildingName || 'Eastface'} />
         <Row label="Company" value={profile.companyName || '—'} />
-        <Row label="Code" value={profile.companyCode || '—'} />
+        <Row label="Company code" value={profile.companyCode || '—'} />
+        <Row label="Floor" value={profile.companyFloor || '—'} />
         <Row label="Employee" value={profile.employeeCode || '—'} />
+        <Row label="Role" value={profile.role} />
         <Row label="API" value={API_URL} last />
       </View>
+
+      <Text style={styles.help}>
+        Parking is allotted at the gate (admin Check-in / Manual Desk). This app shows your slot,
+        manages in-service / temp plates, and history — same MySQL + allotment rules.
+      </Text>
 
       <Pressable style={styles.logout} onPress={logout}>
         <Text style={styles.logoutText}>Sign out</Text>
@@ -108,7 +117,6 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 24,
-    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
@@ -141,6 +149,12 @@ const styles = StyleSheet.create({
   rowLast: { borderBottomWidth: 0 },
   label: { color: colors.muted },
   value: { color: colors.ink, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  help: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: spacing.lg,
+  },
   logout: {
     marginTop: spacing.lg,
     borderWidth: 1,

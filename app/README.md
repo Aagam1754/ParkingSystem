@@ -1,57 +1,56 @@
 # ParkLane Member App (Expo SDK 54)
 
-React Native companion for corporate members — current slot, vehicles, in-service / temp plate, and session history.
+Corporate-member companion for the Eastface parking system. Uses the **same Express API + allotment engine** as the admin panel.
 
-Uses the same Express API as the admin panel (`/api/auth`, `/api/me/*`).
+Members do **not** run ALPR / gate cameras — they see allotment results and manage vehicles.
+
+## Features
+
+| Screen | Behavior (mirrors admin logic) |
+|---|---|
+| Login | JWT for `CORPORATE_MEMBER` only |
+| Current slot | Open session after gate check-in; auto-refresh every 4s |
+| My vehicles | ACTIVE ↔ IN_SERVICE; claim / retire TEMP_SERVICE plates |
+| History | Sessions with COMPANY / GENERAL / GUEST pool types |
+| Profile | Building, company, employee code |
+
+### Allotment rules (same as admin)
+
+1. ACTIVE company plate → company basement pool (FCFS)
+2. Company pool full → Basement 1 GENERAL overflow
+3. Unknown plate → guest + GENERAL (gate only)
+4. IN_SERVICE plate → **rejected at gate** — use claimed temp plate (ACTIVE company vehicle)
 
 ## Setup
 
 ```bash
-# from repo root
 npm install --prefix app
-
-# ensure API is running
 npm run dev:api
-```
-
-## Run
-
-```bash
+npm run db:seed   # if needed
 npm run dev:app
-# or: npm start --prefix app
 ```
 
-Then open in Expo Go, iOS Simulator, or Android emulator.
+### API URL (physical device)
 
-### API URL
+Set in `app/.env`:
 
-Default:
-
-| Environment | URL |
-|---|---|
-| iOS simulator | `http://localhost:4000` |
-| Android emulator | `http://10.0.2.2:4000` |
-| Physical device | set `EXPO_PUBLIC_API_URL=http://<your-lan-ip>:4000` |
-
-Example:
-
-```bash
-EXPO_PUBLIC_API_URL=http://192.168.1.10:4000 npm run dev:app
+```env
+EXPO_PUBLIC_API_URL=http://192.168.x.x:4000
+# or a Cloudflare / ngrok HTTPS tunnel to :4000
 ```
 
-## Demo login
+## Demo logins (password `Admin@123`)
 
-| Email | Password |
-|---|---|
-| `aisha@nexus.local` | `Admin@123` |
-| `meera@orbit.local` | `Admin@123` |
-| `neha@pixel.local` | `Admin@123` |
+| Email | Company | Demo plates |
+|---|---|---|
+| `priya@yorkie.local` | York IE | `GJ01YK1001`, `GJ01YK1002` |
+| `aisha@nexus.local` | Nexus | `MH12AB1234`, `MH12CD5678` |
+| `meera@orbit.local` | Orbit | `GJ01GH3456` |
 
-Admins (`admin@parking.local`) are rejected — use the web control panel.
+## End-to-end test
 
-## Screens
-
-1. **Current slot** — open parking session for this member
-2. **My vehicles** — mark `IN_SERVICE` / `ACTIVE`, claim temp plate
-3. **History** — past sessions
-4. **Profile** — company info + sign out
+1. Login as Priya in the app
+2. Admin Manual Desk / Check-in: `GJ01YK1001` → York company slot (B2Y/B3Y)
+3. App **Current slot** shows bay + `COMPANY` pool
+4. Mark car IN_SERVICE → Claim temp plate → admin check-in temp → company slot
+5. History lists sessions; check-out at gate frees the bay
