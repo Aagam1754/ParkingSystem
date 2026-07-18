@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getToken, isBypassToken } from '../api/client';
 import { MeAPI } from '../api/endpoints';
 import { notifyGuidedBayMatch, notifyParkedCorrectly } from './parkAlerts';
 
@@ -16,6 +17,7 @@ export async function getGuidedSlot() {
 
 /**
  * Poll open session; notify once when gate allotment confirms a new park.
+ * Skipped entirely in offline bypass mode.
  */
 export function startParkWatch({ intervalMs = 5000 } = {}) {
   let stopped = false;
@@ -24,6 +26,9 @@ export function startParkWatch({ intervalMs = 5000 } = {}) {
   async function tick() {
     if (stopped) return;
     try {
+      const token = await getToken();
+      if (isBypassToken(token)) return;
+
       const session = await MeAPI.currentSession();
       const lastId = await AsyncStorage.getItem(LAST_SESSION_KEY);
       if (session?.id) {
@@ -40,7 +45,6 @@ export function startParkWatch({ intervalMs = 5000 } = {}) {
           if (guided) await setGuidedSlot(null);
         }
       } else if (lastId) {
-        // Checked out — allow next park to notify again
         await AsyncStorage.removeItem(LAST_SESSION_KEY);
       }
     } catch {

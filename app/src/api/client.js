@@ -3,6 +3,13 @@ import { API_URL } from '../config';
 
 const TOKEN_KEY = 'parklane_member_token';
 
+/** Local-only session marker — no JWT, no API required */
+export const BYPASS_TOKEN = '__parklane_offline_bypass__';
+
+export function isBypassToken(token) {
+  return token === BYPASS_TOKEN;
+}
+
 const authListeners = new Set();
 
 export function onAuthInvalid(listener) {
@@ -37,6 +44,11 @@ export async function api(path, options = {}) {
 
   const isPublicAuth = path.startsWith('/api/auth/login');
   const token = await getToken();
+
+  if (isBypassToken(token) && !isPublicAuth) {
+    throw new Error('Offline demo mode — API calls are disabled. Reconnect the API to use live data.');
+  }
+
   if (token && !isPublicAuth) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -53,7 +65,7 @@ export async function api(path, options = {}) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && !isPublicAuth) {
+    if (res.status === 401 && !isPublicAuth && !isBypassToken(token)) {
       await setToken(null);
       emitAuthInvalid();
     }

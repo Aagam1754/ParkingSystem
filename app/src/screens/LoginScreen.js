@@ -20,7 +20,7 @@ const DEMO_ACCOUNTS = [
 ];
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, loginBypass } = useAuth();
   const [email, setEmail] = useState('priya@yorkie.local');
   const [password, setPassword] = useState('Admin@123');
   const [error, setError] = useState('');
@@ -33,6 +33,18 @@ export default function LoginScreen() {
       await login(email.trim(), password);
     } catch (err) {
       setError(err.message || 'Login failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onBypass() {
+    setError('');
+    setBusy(true);
+    try {
+      await loginBypass();
+    } catch (err) {
+      setError(err.message || 'Bypass failed');
     } finally {
       setBusy(false);
     }
@@ -87,6 +99,17 @@ export default function LoginScreen() {
             <Text style={styles.btnText}>Sign in</Text>
           )}
         </Pressable>
+
+        <Pressable
+          style={[styles.bypassBtn, busy && styles.btnDisabled]}
+          onPress={onBypass}
+          disabled={busy}
+        >
+          <Text style={styles.bypassText}>Continue without API (offline demo)</Text>
+        </Pressable>
+        <Text style={styles.bypassHint}>
+          Skips login when the phone can’t reach the backend. Live slot / Assist need the API later.
+        </Text>
 
         <Text style={styles.demoTitle}>Quick demo accounts (password Admin@123)</Text>
         <View style={styles.demoRow}>
@@ -186,6 +209,25 @@ const styles = StyleSheet.create({
     color: colors.bg0,
     fontWeight: '800',
     fontSize: 16,
+  },
+  bypassBtn: {
+    marginTop: 10,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.accent2,
+    backgroundColor: 'rgba(61, 255, 168, 0.08)',
+  },
+  bypassText: {
+    color: colors.accent2,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  bypassHint: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
   },
   error: {
     color: colors.danger,
