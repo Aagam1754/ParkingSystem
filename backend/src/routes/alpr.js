@@ -3,11 +3,8 @@ import { requireAuth, requireRoles } from '../middleware/auth.js';
 import { query, withTransaction } from '../db/pool.js';
 import { processEntryScan, processExitScan } from '../services/allotment.js';
 import { resolvePlateFromOcr } from '../utils/plateMatch.js';
-<<<<<<< HEAD
 import { acceptWebcamPlate } from '../utils/plateGate.js';
-=======
 import { emitAssistantTips } from '../services/assistantTips.js';
->>>>>>> origin/feature/mobile-app
 
 const router = Router();
 const PYTHON_ALPR_URL = process.env.PYTHON_ALPR_URL || 'http://127.0.0.1:5001';
