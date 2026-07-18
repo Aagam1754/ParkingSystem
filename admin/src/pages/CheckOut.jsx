@@ -23,6 +23,10 @@ export default function CheckOut() {
   const [status, setStatus] = useState('Check-out camera ready');
   const [popup, setPopup] = useState({ open: false, title: '', lines: [] });
 
+  const closePopup = useCallback(() => {
+    setPopup((p) => ({ ...p, open: false }));
+  }, []);
+
   const onCheckoutSuccess = useCallback((payload) => {
     if (!payload?.closed && !payload?.session) return;
     const plateRaw = payload.session?.plate_normalized || payload.plateNormalized || '';
@@ -32,6 +36,7 @@ export default function CheckOut() {
     setDetectedPlate(plateRaw);
     cooldownPlateRef.current = plateRaw;
     cooldownUntilRef.current = Date.now() + 15000;
+    setError('');
     setStatus(`Checked out ${plate}`);
     setPopup({
       open: true,
@@ -233,7 +238,7 @@ export default function CheckOut() {
         lines={popup.lines}
         tone="checkout"
         autoCloseMs={1000}
-        onClose={() => setPopup((p) => ({ ...p, open: false }))}
+        onClose={closePopup}
       />
     </div>
   );

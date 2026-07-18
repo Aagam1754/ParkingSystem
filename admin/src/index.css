@@ -623,12 +623,12 @@ a {
 .popup-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 10, 8, 0.72);
+  background: rgba(4, 10, 8, 0.78);
   display: grid;
   place-items: center;
-  z-index: 1000;
+  z-index: 99999;
   padding: 20px;
-  animation: fadeIn 180ms ease;
+  animation: fadeIn 120ms ease;
 }
 
 .popup-card {
@@ -637,9 +637,21 @@ a {
   border: 1px solid rgba(214, 255, 75, 0.35);
   background: linear-gradient(180deg, #163028, #0d1713);
   padding: 28px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
   position: relative;
   overflow: hidden;
+  animation: popupPop 180ms ease;
+}
+
+@keyframes popupPop {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .popup-card h3 {

@@ -24,12 +24,17 @@ export default function CheckIn() {
   const [status, setStatus] = useState('Starting check-in camera…');
   const [popup, setPopup] = useState({ open: false, title: '', lines: [] });
 
+  const closePopup = useCallback(() => {
+    setPopup((p) => ({ ...p, open: false }));
+  }, []);
+
   const onCheckinSuccess = useCallback((payload) => {
     if (!payload?.allotted) return;
     setResult(payload);
     setDetectedPlate(payload.plateNormalized || '');
     cooldownPlateRef.current = payload.plateNormalized || '';
     cooldownUntilRef.current = Date.now() + 15000;
+    setError('');
     setPopup({
       open: true,
       title: 'Check-in success',
@@ -280,7 +285,7 @@ export default function CheckIn() {
         title={popup.title}
         lines={popup.lines}
         autoCloseMs={1000}
-        onClose={() => setPopup((p) => ({ ...p, open: false }))}
+        onClose={closePopup}
       />
     </div>
   );

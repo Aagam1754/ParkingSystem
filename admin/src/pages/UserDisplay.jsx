@@ -40,6 +40,9 @@ export default function UserDisplay() {
   const [highlightMode, setHighlightMode] = useState(false);
   const [error, setError] = useState('');
   const [popup, setPopup] = useState({ open: false, title: '', lines: [] });
+  const closePopup = useCallback(() => {
+    setPopup((p) => ({ ...p, open: false }));
+  }, []);
 
   const loadBase = useCallback(async (baseId) => {
     if (!baseId) return;
@@ -253,7 +256,7 @@ export default function UserDisplay() {
         title={popup.title}
         lines={popup.lines}
         autoCloseMs={1000}
-        onClose={() => setPopup((p) => ({ ...p, open: false }))}
+        onClose={closePopup}
       />
     </div>
   );
