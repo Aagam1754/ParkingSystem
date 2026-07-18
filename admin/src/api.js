@@ -114,3 +114,48 @@ export const AlprAPI = {
       body: JSON.stringify(payload),
     }),
 };
+
+export const AssistantAPI = {
+  context: () => api('/api/assistant/context'),
+  tips: () => api('/api/assistant/tips'),
+  voiceStatus: () => api('/api/assistant/voice'),
+  chat: (payload) =>
+    api('/api/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  navigate: (payload = {}) =>
+    api('/api/assistant/navigate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  estimate: (payload) =>
+    api('/api/assistant/estimate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** Returns an audio Blob (mp3) from ElevenLabs via the API */
+  speak: async (text) => {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/api/assistant/speak`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ text }),
+      });
+    } catch {
+      throw new Error('Cannot reach API for speech. Is the backend running?');
+    }
+
+    if (!res.ok) {
+      if (res.status === 401) clearAuthToken();
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Speech failed (${res.status})`);
+    }
+    return res.blob();
+  },
+};

@@ -10,6 +10,7 @@ const links = [
   { to: '/sessions', label: 'Sessions' },
   { to: '/vehicles', label: 'Vehicles' },
   { to: '/registry', label: 'Companies' },
+  { to: '/assistant', label: 'AI Assistant' },
 ];
 
 export default function Layout() {

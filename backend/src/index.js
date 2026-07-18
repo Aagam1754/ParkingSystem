@@ -9,6 +9,8 @@ import sessionsRoutes from './routes/sessions.js';
 import vehiclesRoutes from './routes/vehicles.js';
 import dashboardRoutes from './routes/dashboard.js';
 import alprRoutes from './routes/alpr.js';
+import assistantRoutes from './routes/assistant.js';
+import { emitAssistantTips } from './services/assistantTips.js';
 
 dotenv.config();
 
@@ -49,9 +51,13 @@ app.use('/api/sessions', sessionsRoutes);
 app.use('/api/vehicles', vehiclesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/alpr', alprRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 io.on('connection', (socket) => {
   socket.emit('connected', { message: 'ParkAI live feed connected' });
+  emitAssistantTips(io).then((payload) => {
+    if (payload) socket.emit('assistant.tip', payload);
+  });
 });
 
 const port = Number(process.env.PORT || 4000);
