@@ -76,6 +76,8 @@ export default function Assistant() {
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
   const autoSpeakRef = useRef(true);
+  const speakGenerationRef = useRef(0);
+  const speakAbortRef = useRef(null);
 
   useEffect(() => {
     autoSpeakRef.current = autoSpeak;
@@ -125,8 +127,18 @@ export default function Assistant() {
   }, []);
 
   function stopSpeaking() {
+    speakGenerationRef.current += 1;
+    if (speakAbortRef.current) {
+      speakAbortRef.current.abort();
+      speakAbortRef.current = null;
+    }
     if (audioRef.current) {
-      audioRef.current.pause();
+      try {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      } catch {
+        /* ignore */
+      }
       audioRef.current = null;
     }
     if (audioUrlRef.current) {
@@ -138,23 +150,59 @@ export default function Assistant() {
 
   async function speakText(text, idx = null) {
     if (!ttsReady || !text) return;
-    stopSpeaking();
+
+    // Cancel any in-flight fetch + playing audio so only one speech runs
+    if (speakAbortRef.current) {
+      speakAbortRef.current.abort();
+      speakAbortRef.current = null;
+    }
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      } catch {
+        /* ignore */
+      }
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+
+    const generation = ++speakGenerationRef.current;
+    const controller = new AbortController();
+    speakAbortRef.current = controller;
     setSpeakingIdx(idx);
+    setError('');
+
     try {
-      const blob = await AssistantAPI.speak(text);
+      const blob = await AssistantAPI.speak(text, { signal: controller.signal });
+      if (generation !== speakGenerationRef.current) return;
+
       const url = URL.createObjectURL(blob);
       audioUrlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.onended = () => {
-        stopSpeaking();
+        if (generation === speakGenerationRef.current) {
+          setSpeakingIdx(null);
+          speakAbortRef.current = null;
+        }
       };
       audio.onerror = () => {
-        stopSpeaking();
-        setError('Could not play ElevenLabs audio');
+        if (generation === speakGenerationRef.current) {
+          setSpeakingIdx(null);
+          setError('Could not play ElevenLabs audio');
+        }
       };
       await audio.play();
+      if (generation !== speakGenerationRef.current) {
+        audio.pause();
+      }
     } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (generation !== speakGenerationRef.current) return;
       setSpeakingIdx(null);
       setError(err.message);
     }
@@ -208,7 +256,11 @@ export default function Assistant() {
         ];
         if (autoSpeakRef.current && ttsReady) {
           const idx = next.length - 1;
-          queueMicrotask(() => speakText(data.reply, idx));
+          const reply = data.reply;
+          // Defer outside setState updater so Strict Mode can't double-fire speak
+          setTimeout(() => {
+            if (autoSpeakRef.current) speakText(reply, idx);
+          }, 0);
         }
         return next;
       });
@@ -252,7 +304,10 @@ export default function Assistant() {
         ];
         if (autoSpeakRef.current && ttsReady) {
           const idx = next.length - 1;
-          queueMicrotask(() => speakText(plan.summary, idx));
+          const summary = plan.summary;
+          setTimeout(() => {
+            if (autoSpeakRef.current) speakText(summary, idx);
+          }, 0);
         }
         return next;
       });
