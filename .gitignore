@@ -8,3 +8,7 @@ admin/dist/
 backend/node_modules/
 admin/node_modules/
 backend/.env
+
+alpr-service/__pycache__/
+*.pyc
+.venv/
